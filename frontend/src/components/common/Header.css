@@ -1,0 +1,162 @@
+General header styling .dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px;
+  background-color: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  height: 65px;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: normal;
+  margin: 0;
+  color: #333;
+}
+
+/* User info section */
+.header-controls {
+  display: flex;
+  align-items: center;
+}
+
+.user-info-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  margin-right: 10px;
+  cursor: pointer;
+}
+
+.profile-icon {
+  width: 25px;
+  height: 25px;
+  margin-right: 10px;
+  border-radius: 50%;
+}
+
+.user-name {
+  font-weight: bold;
+  color: #333;
+}
+
+/* User dropdown menu */
+.user-options {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background-color: #fff;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  z-index: 10;
+}
+
+.user-option {
+  padding: 10px 20px;
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.user-option:hover {
+  background-color: #f0f0f0;
+}
+
+.user-option.disabled {
+  color: #999;
+  cursor: not-allowed;
+  background-color: #f9f9f9;
+}
+
+/* Logout button */
+.logout-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+.logout-icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Modal styles */
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 20;
+}
+
+.modal {
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  width: 300px;
+  max-width: 90%;
+  text-align: center;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.modal h2 {
+  font-size: 18px;
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.modal p {
+  font-size: 14px;
+  color: #555;
+  margin-bottom: 20px;
+}
+
+.mdlcreate-button,
+.mdlclose-button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  margin: 5px;
+}
+
+.mdlcreate-button {
+  background-color: #007bff;
+  color: white;
+  transition: background-color 0.3s ease;
+}
+
+.mdlcreate-button:hover {
+  background-color: #0056b3;
+}
+
+.mdlclose-button {
+  background-color: #980202;
+  color: #ffffff;
+  transition: background-color 0.3s ease;
+}
+
+.mdlclose-button:hover {
+  background-color: #640000;
+}
+
+.logo-image {
+  width: 100px;
+  height: auto;
+}

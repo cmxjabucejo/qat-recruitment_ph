@@ -1,0 +1,24 @@
+.sidebar-container {
+    position: relative;
+    width: 200px;
+    transition: width 0.3s ease;
+  }
+  
+  .collapsed-sidebar .sidebar-container {
+    width: 50px; /* Minimum visible portion of the sidebar */
+  }
+  
+  .sidebar-toggle {
+    position: absolute;
+    top: 50%;
+    right: 15px;
+    transform: translateY(-50%);
+    background-color: #ffffff;
+    color: rgb(0, 0, 0);
+    border: 2px;
+    padding: 10px;
+    border-radius: 0;
+    cursor: pointer;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    transition: right 0.3s ease;
+  }

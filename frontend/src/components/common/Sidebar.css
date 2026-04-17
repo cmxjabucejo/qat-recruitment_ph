@@ -1,0 +1,116 @@
+/* Sidebar Styles */
+.sidebar {
+  width: 185px;
+  height: 100%;
+  background-color: #fff;
+  display: flex;
+  flex-direction: column; /* Ensures footer stays at the bottom */
+  justify-content: space-between; /* Pushes footer to the bottom */
+  padding: 0px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+  transition: width 0.3s ease, opacity 0.3s ease;
+}
+
+.sidebar.collapsed {
+  width: 35px; /* Minimal width when collapsed */
+}
+
+.sidebar-logo img {
+  width: 100%;
+  margin-bottom: 20px;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.sidebar.collapsed .sidebar-logo img {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.nav-links {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  flex-grow: 1; /* Pushes the footer to the bottom */
+  margin-top: 20px;
+}
+
+.nav-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+}
+
+.nav-link {
+  width: 100%;
+  padding: 10px;
+  color: #000; /* Default text color */
+  background-color: #fff; /* Default background color */
+  text-decoration: none; /* Remove underline */
+  display: block;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.nav-linkChild {
+  width: 100%;
+  padding: 10px;
+  padding-left: 25px;
+  color: #000; /* Default text color */
+  background-color: #fff; /* Default background color */
+  text-decoration: none; /* Remove underline */
+  display: block;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.nav-link:hover {
+  background-color: #e6f7ff; /* Light blue on hover */
+  color: #000; /* Hover text color */
+}
+
+.nav-link.active {
+  background-color: #022c59; /* Blue background when active */
+  color: #fff; /* White text color when active */
+  font-weight: bold; /* Make the active link text bold */
+}
+
+.nav-linkChild.active {
+  background-color: #022c59; /* Blue background when active */
+  color: #fff; /* White text color when active */
+  font-weight: bold; /* Make the active link text bold */
+}
+
+.nav-item img {
+  width: 24px;
+  height: 24px;
+  margin-right: 10px;
+}
+
+.nav-item span {
+  white-space: nowrap;
+  overflow: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.sidebar.collapsed .nav-item span {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.sidebar-footer {
+  text-align: center;
+  margin-bottom: 10px; /* Adds the desired margin */
+  font-size: 0.9rem;
+  color: #000000; /* Example text color */
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.sidebar.collapsed .sidebar-footer {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.hidden {
+  display: none;
+}
+.visible {
+  display: block;
+}
