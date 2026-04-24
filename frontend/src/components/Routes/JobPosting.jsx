@@ -18,6 +18,7 @@ import Header from "../../components/common/Header"; // ✅ Import the new reusa
 import callmaxCover from "../../assets/cmxlogo-removebg-preview.png";
 import searchIcon from "../../assets/search_symbol.png";
 import { SERVER_URL } from "../lib/constants";
+import { apiFetch } from "../lib/apiFetch";
 
 // Simple Status Chip
 const StatusChip = ({ status }) => {
@@ -176,7 +177,7 @@ export default function JobPosting({ user }) {
   useEffect(() => {
     const fetchPostings = async () => {
       try {
-        const res = await fetch(`${SERVER_URL}/jobposts/job_postings`);
+        const res = await apiFetch(`${SERVER_URL}/jobposts/job_postings`);
         const data = await res.json();
         if (data.success) {
           const jobs = data.data;
@@ -230,7 +231,7 @@ export default function JobPosting({ user }) {
 
     try {
       // 1. Get the max ID to generate a job code
-      const resMaxId = await fetch(
+      const resMaxId = await apiFetch(
         `${SERVER_URL}/jobposts/job_postings/max-id`,
       );
       const { maxId } = await resMaxId.json();
@@ -245,7 +246,7 @@ export default function JobPosting({ user }) {
       };
 
       // 3. Submit to backend
-      const res = await fetch(`${SERVER_URL}/jobposts/job_postings`, {
+      const res = await apiFetch(`${SERVER_URL}/jobposts/job_postings`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -268,7 +269,9 @@ export default function JobPosting({ user }) {
         });
 
         // Re-fetch job postings
-        const postingsRes = await fetch(`${SERVER_URL}/jobposts/job_postings`);
+        const postingsRes = await apiFetch(
+          `${SERVER_URL}/jobposts/job_postings`,
+        );
         const postingsData = await postingsRes.json();
         if (postingsData.success) {
           setPostings(postingsData.data);
@@ -302,7 +305,7 @@ export default function JobPosting({ user }) {
   // Fetch max ID from job postings for job code generation
   const fetchMaxId = async () => {
     try {
-      const res = await fetch(`${SERVER_URL}/jobposts/job_postings/max-id`);
+      const res = await apiFetch(`${SERVER_URL}/jobposts/job_postings/max-id`);
       const data = await res.json();
       if (data.success) {
         setMaxId(data.maxId + 1); // increment for new record
@@ -341,7 +344,7 @@ export default function JobPosting({ user }) {
 
   const handleEditJobPosting = async (updatedData, id) => {
     try {
-      const res = await fetch(`${SERVER_URL}/jobposts/job_postings/${id}`, {
+      const res = await apiFetch(`${SERVER_URL}/jobposts/job_postings/${id}`, {
         method: "PUT", // or "PATCH" depending on backend
         headers: {
           "Content-Type": "application/json",

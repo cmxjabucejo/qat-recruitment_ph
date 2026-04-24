@@ -58,7 +58,9 @@ export default function EOLAssessment({ user }) {
   /* ===================== DATA ===================== */
   const fetchData = async () => {
     try {
-      const res = await axios.get(`${SERVER_URL}/assessments/eol-assessment`);
+      const res = await axios.get(`${SERVER_URL}/assessments/eol-assessment`, {
+        withCredentials: true,
+      });
       setRows(res.data);
       setFilteredRows(res.data);
     } catch (err) {

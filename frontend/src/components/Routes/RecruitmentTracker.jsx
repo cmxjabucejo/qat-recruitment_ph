@@ -186,7 +186,7 @@ function RecruitmentTracker({ user }) {
 
   const handleLogout = async () => {
     try {
-      await apiFetch(`${SERVER_URL}/auth/logout`, {
+      await fetch(`${SERVER_URL}/auth/logout`, {
         method: "POST",
         credentials: "include",
       });
@@ -646,6 +646,7 @@ function RecruitmentTracker({ user }) {
         `${SERVER_URL}/applicants/updateapplicant`,
         formDataToSend,
         {
+          withCredentials: true,
           headers: {
             "Content-Type": "multipart/form-data",
           },
@@ -658,6 +659,7 @@ function RecruitmentTracker({ user }) {
         // ✅ Refetch single updated candidate
         const freshRes = await axios.get(
           `${SERVER_URL}/applicants/getcandidate/${formData.applicationid}`,
+          { withCredentials: true },
         );
         const rawData = freshRes.data;
         const normalized = normalizeFormData(rawData);
@@ -808,6 +810,7 @@ function RecruitmentTracker({ user }) {
           emailAddress: formData.candidateemail1,
           applicantID: formData.applicationid,
         },
+        { withCredentials: true },
       );
 
       if (response.data.success) {
@@ -839,6 +842,7 @@ function RecruitmentTracker({ user }) {
           emailAddress: formData.candidateemail1,
           applicantID: formData.applicationid,
         },
+        { withCredentials: true },
       );
 
       if (response.data.success) {
@@ -862,10 +866,14 @@ function RecruitmentTracker({ user }) {
 
     setIsSendingEOL(true);
     try {
-      const response = await axios.post(`${SERVER_URL}/emails/eol_email`, {
-        emailAddress: formData.candidateemail1,
-        applicantID: formData.applicationid,
-      });
+      const response = await axios.post(
+        `${SERVER_URL}/emails/eol_email`,
+        {
+          emailAddress: formData.candidateemail1,
+          applicantID: formData.applicationid,
+        },
+        { withCredentials: true },
+      );
 
       if (response.data.success) {
         alert("EOL Assessment email sent successfully!");
@@ -1060,6 +1068,7 @@ function RecruitmentTracker({ user }) {
         `${SERVER_URL}/applicants/editapplicant`,
         formDataToSend,
         {
+          withCredentials: true,
           headers: { "Content-Type": "multipart/form-data" },
         },
       );
@@ -1208,6 +1217,7 @@ function RecruitmentTracker({ user }) {
         `${SERVER_URL}/applicants/addapplicants`,
         formDataWithAttachment,
         {
+          withCredentials: true,
           headers: {
             "Content-Type": "multipart/form-data",
           },
@@ -1256,9 +1266,13 @@ function RecruitmentTracker({ user }) {
 
   const sendAcknowledgmentEmail = async () => {
     try {
-      await axios.post(`${SERVER_URL}/emails/send_acknowledgement`, {
-        email: formData.candidateemail1,
-      });
+      await axios.post(
+        `${SERVER_URL}/emails/send_acknowledgement`,
+        {
+          email: formData.candidateemail1,
+        },
+        { withCredentials: true },
+      );
       alert(`Acknowledgment email sent to ${formData.candidateemail1}.`);
     } catch (error) {
       console.error("Error sending email:", error);
@@ -1876,6 +1890,7 @@ function RecruitmentTracker({ user }) {
                         try {
                           const res = await axios.get(
                             `${SERVER_URL}/applicants/getcandidate/${selected.applicationid}`,
+                            { withCredentials: true },
                           );
 
                           const rawData = res.data;
@@ -1904,6 +1919,7 @@ function RecruitmentTracker({ user }) {
                       onClick={async () => {
                         const freshRes = await axios.get(
                           `${SERVER_URL}/applicants/getcandidate/${selected.applicationid}`,
+                          { withCredentials: true },
                         );
 
                         const rawData = freshRes.data;

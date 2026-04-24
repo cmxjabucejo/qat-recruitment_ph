@@ -49,7 +49,9 @@ export default function TypingTest({ user }) {
 
   const fetchData = async () => {
     try {
-      const res = await axios.get(`${SERVER_URL}/assessments/typing-results`);
+      const res = await axios.get(`${SERVER_URL}/assessments/typing-results`, {
+        withCredentials: true,
+      });
       setRows(res.data);
       setFilteredRows(res.data);
     } catch (err) {
