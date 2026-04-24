@@ -14,7 +14,7 @@ import Header from "../../components/common/Header"; // ✅ Import the new reusa
 
 import axios from "axios";
 
-export default function TypingTest() {
+export default function TypingTest({ user }) {
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [filteredRows, setFilteredRows] = useState([]);
@@ -44,12 +44,12 @@ export default function TypingTest() {
   };
 
   // ✅ FIX: declare user info BEFORE JSX return
-  const userName = localStorage.getItem("name") || "User";
-  const userid = localStorage.getItem("userid") || "";
+  const userName = user.fullName || localStorage.getItem("name") || "User";
+  const userid = user.userid || localStorage.getItem("userid") || "";
 
   const fetchData = async () => {
     try {
-      const res = await axios.get(`${SERVER_URL}/api/typing-results`);
+      const res = await axios.get(`${SERVER_URL}/assessments/typing-results`);
       setRows(res.data);
       setFilteredRows(res.data);
     } catch (err) {

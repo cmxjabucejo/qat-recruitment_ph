@@ -1,203 +1,270 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { SERVER_URL } from "../lib/constants";
 import bcrypt from "bcryptjs";
 import UserService from "../service/UserService";
+import { apiFetch } from "../lib/apiFetch";
 
 const OtpVerification = () => {
-  const navigate = useNavigate();
+  const otpRef = useRef(null);
   const location = useLocation();
-
-  const searchParams = new URLSearchParams(location.search);
-  const queryRedirect = searchParams.get("redirect");
-
-  const emailAddress =
-    location.state?.emailAddress || localStorage.getItem("pendingEmail");
-
-  const requestedDateTime =
-    location.state?.requestedDateTime ||
-    localStorage.getItem("pendingRequestedAt");
-
-  const expiryDateTime =
-    location.state?.expiryDateTime || localStorage.getItem("pendingExpiryAt");
-
-  // ✅ Persist fallback data if present in state
-  if (location.state?.emailAddress) {
-    localStorage.setItem("pendingEmail", location.state.emailAddress);
-  }
-
-  if (location.state?.redirectPath) {
-    localStorage.setItem("pendingRedirectPath", location.state.redirectPath);
-  }
-
-  // ✅ Robust redirect logic
-  // const redirectPath =
-  //   location.state?.redirectPath ||
-  //   queryRedirect ||
-  //   localStorage.getItem("pendingRedirectPath") ||
-  //   "/home";
-
-  const redirectPath =
-    location.state?.redirectPath ||
-    queryRedirect ||
-    localStorage.getItem("pendingRedirectPath") ||
-    "/home";
-
-  const flow =
-    location.state?.flow || localStorage.getItem("pendingFlow") || "login";
 
   const [enteredOtp, setEnteredOtp] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [emailAddress, setEmailAddress] = useState("");
 
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [isExpired, setIsExpired] = useState(false);
+
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [isResending, setIsResending] = useState(false);
+  const [resendDots, setResendDots] = useState("");
+
+  const navigate = useNavigate();
+
+  /*
+  ========================================
+  ⏱ FORMATTERS
+  ========================================
+  */
+  const formatTime = (seconds) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  /*
+  ========================================
+  🔁 INIT (OTP SESSION + TIMER)
+  ========================================
+  */
+  useEffect(() => {
+    const email =
+      location.state?.emailAddress || localStorage.getItem("pendingEmail");
+
+    const challengeId = localStorage.getItem("pendingChallengeId");
+    const expiry = localStorage.getItem("pendingExpiryAt");
+
+    if (!email || !challengeId || !expiry) {
+      setError("Session expired. Please request a new OTP.");
+      return;
+    }
+
+    setEmailAddress(email);
+    localStorage.setItem("pendingEmail", email);
+
+    setError("");
+    setSuccess("");
+    setIsExpired(false);
+
+    const expiryTime = new Date(expiry).getTime();
+
+    const interval = setInterval(() => {
+      const diff = Math.floor((expiryTime - Date.now()) / 1000);
+
+      if (diff <= 0) {
+        setTimeLeft(0);
+        setIsExpired(true);
+        clearInterval(interval);
+      } else {
+        setTimeLeft(diff);
+      }
+    }, 1000);
+
+    // 🔥 INIT RESEND COOLDOWN
+    const cooldownStart = localStorage.getItem("otpCooldownStart");
+
+    if (cooldownStart) {
+      const elapsed = Math.floor((Date.now() - cooldownStart) / 1000);
+      const remaining = 60 - elapsed;
+
+      if (remaining > 0) {
+        setResendCooldown(remaining);
+      }
+    }
+
+    // 🔥 AUTO-FOCUS
+    setTimeout(() => otpRef.current?.focus(), 100);
+
+    return () => clearInterval(interval);
+  }, [location.state]);
+
+  /*
+  ========================================
+  🔐 VERIFY OTP
+  ========================================
+  */
   const handleVerifyOtp = async () => {
     setError("");
     setSuccess("");
 
-    if (!emailAddress) {
-      setError("Missing email. Please restart the process.");
-      return;
-    }
-
-    if (!enteredOtp) {
-      setError("Please enter the OTP.");
-      return;
-    }
-
-    const now = new Date();
-    const expiry = new Date(expiryDateTime);
-
-    if (!expiryDateTime || isNaN(expiry.getTime())) {
-      setError("Invalid or expired OTP session. Please request a new one.");
-      return;
-    }
-
-    if (now > expiry) {
+    if (isExpired) {
       setError("OTP has expired. Please request a new one.");
       return;
     }
 
-    const hashedOtp = localStorage.getItem("pendingOtpHashed");
-    if (!hashedOtp) {
-      setError("No OTP found. Please try again.");
+    const challengeId = localStorage.getItem("pendingChallengeId");
+
+    if (!challengeId) {
+      setError("Session expired. Please request a new OTP.");
       return;
     }
 
-    const isMatch = await bcrypt.compare(enteredOtp, hashedOtp);
-    if (!isMatch) {
-      setError("Incorrect OTP. Please try again.");
+    if (!enteredOtp || enteredOtp.length !== 6) {
+      setError("Please enter a valid 6-digit OTP.");
       return;
     }
 
     try {
-      // ✅ REGISTER FLOW
-      const storedUserDataRaw = localStorage.getItem("pendingUserData");
+      const res = await apiFetch(`${SERVER_URL}/auth/verify-otp-login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          challengeId,
+          otp: enteredOtp,
+        }),
+      });
 
-      if (flow === "register" && storedUserDataRaw) {
-        const userData = JSON.parse(storedUserDataRaw);
-        const { firstname, lastname, phone_num, middlename = "" } = userData;
+      if (!res) return;
 
-        if (!firstname || !lastname || !phone_num) {
-          setError("Registration data missing. Please restart registration.");
-          return;
-        }
+      const data = await res.json();
 
-        const res = await fetch(
-          `${SERVER_URL}/api/verify-and-complete-registration`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              firstname,
-              lastname,
-              email: emailAddress,
-              phone_num,
-              middlename,
-            }),
-          },
-        );
-
-        const data = await res.json();
-
-        if (!res.ok || !data.success) {
-          setError(data.error || "Failed to complete registration.");
-          return;
-        }
-
-        if (!data.token) {
-          setError("Token not received from server.");
-          return;
-        }
-
-        // ✅ Simulate login for newly registered user
-        UserService.loginApplicant({
-          email: emailAddress,
-          firstname,
-          lastname,
-          middlename,
-          picture: "/default-avatar.png",
-          role: "user",
-          token: data.token, // 🔑 use token from backend response
-        });
-
-        setSuccess("Registration & OTP verification successful!");
-      } else {
-        // ✅ LOGIN FLOW
-        const res = await fetch(`${SERVER_URL}/auth/verify-otp-login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: emailAddress }),
-        });
-
-        const data = await res.json();
-
-        if (!res.ok || !data.success) {
-          setError(data.error || "Failed to log in.");
-          return;
-        }
-
-        const { token, user } = data;
-
-        UserService.loginApplicant({
-          email: emailAddress,
-          firstname: user.firstname,
-          lastname: user.lastname,
-          middlename: user.middlename || "",
-          picture: "/default-avatar.png",
-          method: "manual",
-          providerId: emailAddress,
-          role: user.USER_ROLE || "Agent",
-          token,
-        });
-
-        localStorage.setItem("USER_ROLE", user.USER_ROLE || "Agent");
-        localStorage.setItem("EMPLOYEEID", user.EMPLOYEEID || "");
-        localStorage.setItem("name", user.NAME || "");
-
-        setSuccess("OTP verified successfully!");
+      if (!res.ok || !data.success) {
+        setError(data.message || "Invalid OTP");
+        return;
       }
 
-      // ✅ Cleanup
-      localStorage.removeItem("pendingOtpHashed");
+      setSuccess("OTP verified successfully!");
+
+      // 🔥 CLEANUP
+      localStorage.removeItem("pendingChallengeId");
       localStorage.removeItem("pendingEmail");
-      localStorage.removeItem("pendingRequestedAt");
       localStorage.removeItem("pendingExpiryAt");
-      localStorage.removeItem("pendingFlow");
-      localStorage.removeItem("pendingUserData");
-      localStorage.removeItem("pendingRedirectPath");
+      localStorage.removeItem("otpCooldownStart");
 
-      // navigate(redirectPath, {
-      //   state: { appId: `manual_${emailAddress}` },
-      //   replace: true,
-      // });
+      // 🔥 HARD REDIRECT → triggers session check
 
-      // ✅ Replace navigate() with window.location.href to force token sync
-      window.location.href = redirectPath;
+      setTimeout(() => {
+        navigate("/tracker", { replace: true });
+        // window.location.href = "/tracker";
+      }, 400);
     } catch (err) {
-      console.error("❌ OTP Verification Error:", err);
-      setError("Something went wrong. Please try again.");
+      console.error(err);
+      setError("Could not verify OTP. Please try again.");
     }
   };
+
+  /*
+  ========================================
+  🔁 RESEND OTP
+  ========================================
+  */
+  const handleResendOtp = async () => {
+    // 🚫 HARD BLOCK (THIS WAS MISSING)
+    if (isResending || resendCooldown > 0) return;
+
+    setError("");
+    setSuccess("");
+    setIsResending(true);
+
+    const email = localStorage.getItem("pendingEmail");
+
+    if (!email) {
+      setError("Session expired. Please restart login.");
+      setIsResending(false);
+      return;
+    }
+
+    try {
+      console.log("🔥 RESEND OTP CALLED"); // DEBUG
+
+      const res = await apiFetch(`${SERVER_URL}/auth/send-otp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ emailAddress: email }),
+      });
+
+      if (!res) return;
+
+      if (res.status === 429) {
+        const data = await res.json();
+        setError(data.message || "Too many requests. Please wait.");
+        setResendCooldown(60);
+        return;
+      }
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setError(data.message || "Failed to resend OTP.");
+        return;
+      }
+
+      // ✅ SUCCESS FLOW
+      setEnteredOtp("");
+      localStorage.setItem("pendingChallengeId", data.challengeId);
+      localStorage.setItem("pendingExpiryAt", data.expiresAt);
+      localStorage.setItem("otpCooldownStart", Date.now());
+
+      const expiryTime = new Date(data.expiresAt).getTime();
+      setTimeLeft(Math.floor((expiryTime - Date.now()) / 1000));
+      setIsExpired(false);
+
+      setResendCooldown(60);
+      setSuccess("A new OTP has been sent.");
+
+      setTimeout(() => otpRef.current?.focus(), 150);
+    } catch (err) {
+      console.error(err);
+      setError("Could not resend OTP.");
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  /*
+  ========================================
+  ⏳ COOLDOWN TIMER
+  ========================================
+  */
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+
+    const interval = setInterval(() => {
+      setResendCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [resendCooldown]);
+
+  /*
+  ========================================
+  ✨ DOTS ANIMATION
+  ========================================
+  */
+  useEffect(() => {
+    if (!isResending) {
+      setResendDots("");
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setResendDots((prev) => (prev.length >= 3 ? "" : prev + "."));
+    }, 400);
+
+    return () => clearInterval(interval);
+  }, [isResending]);
 
   return (
     <div className="flex justify-center items-center min-h-screen bg-toolbar-gradient px-4">
@@ -217,6 +284,28 @@ const OtpVerification = () => {
           className="w-full border px-3 py-2 rounded text-center text-lg tracking-widest"
           placeholder="Enter 6-digit OTP"
         />
+
+        <div className="text-center mt-3 text-sm">
+          {isExpired ? (
+            resendCooldown > 0 ? (
+              <span className="text-gray-400">
+                Resend in {formatTime(resendCooldown)}
+              </span>
+            ) : (
+              <button
+                onClick={handleResendOtp}
+                disabled={isResending || resendCooldown > 0}
+                className="disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isResending ? `Resending${resendDots}` : "Request new OTP"}
+              </button>
+            )
+          ) : (
+            <span className="text-yellow-300">
+              Expires in {formatTime(timeLeft)}
+            </span>
+          )}
+        </div>
 
         {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
         {success && <p className="text-green-600 text-sm mt-2">{success}</p>}

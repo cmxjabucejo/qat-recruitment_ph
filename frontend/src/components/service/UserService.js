@@ -26,12 +26,12 @@ class UserService {
     try {
       const response = await axios.get(
         `${UserService.BASE_URL}/api/userAccess?userid=${userid}`,
-        UserService.authHeader()
+        UserService.authHeader(),
       );
       return response?.data;
     } catch (err) {
       throw new Error(
-        err?.response?.data?.message || "Failed fetching user access"
+        err?.response?.data?.message || "Failed fetching user access",
       );
     }
   }
@@ -49,7 +49,7 @@ class UserService {
     try {
       const response = await axios.get(
         `${UserService.BASE_URL}/adminuser/get-profile`,
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {
@@ -65,7 +65,7 @@ class UserService {
     try {
       const response = await axios.get(
         `${UserService.BASE_URL}/admin/get-all-users`,
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {
@@ -77,7 +77,7 @@ class UserService {
     try {
       const response = await axios.get(
         `${UserService.BASE_URL}/admin/get-users/${userId}`,
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {
@@ -89,7 +89,7 @@ class UserService {
     try {
       const response = await axios.delete(
         `${UserService.BASE_URL}/admin/delete/${userId}`,
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {
@@ -102,7 +102,7 @@ class UserService {
       const response = await axios.put(
         `${UserService.BASE_URL}/admin/update/${userId}`,
         userData,
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {
@@ -120,7 +120,7 @@ class UserService {
       const response = await axios.post(
         `${UserService.BASE_URL}/auth/register`,
         userData,
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {
@@ -134,7 +134,7 @@ class UserService {
       const response = await axios.put(
         `${UserService.BASE_URL}/users/updatePassword`, // Endpoint for updating password
         { password }, // Send only the password field in the request body
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {
@@ -184,6 +184,82 @@ class UserService {
     }
   }
 
+  // ✅ Save pending user (before OTP verification)
+  static setPendingUser(user) {
+    if (user) {
+      localStorage.setItem("pendingUser", JSON.stringify(user));
+    }
+  }
+
+  static getPendingUser() {
+    const raw = localStorage.getItem("pendingUser");
+    try {
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  static clearPendingUser() {
+    localStorage.removeItem("pendingUser");
+    localStorage.removeItem("pendingOtpHashed");
+    localStorage.removeItem("pendingEmail");
+  }
+
+  static loginUser({
+    userId,
+    email,
+    firstname = "",
+    lastname = "",
+    providerId,
+    userLevel = "",
+    userStatus = "",
+  }) {
+    const finalId =
+      userId || providerId || (email ? `manual_${email}` : undefined);
+
+    if (!finalId) {
+      console.warn("loginUser called without a valid userId/providerId/email");
+    }
+
+    localStorage.setItem("userId", finalId || "");
+    localStorage.setItem("userEmail", email || "");
+    localStorage.setItem("userFirstname", firstname || "");
+    localStorage.setItem("userLastname", lastname || "");
+
+    // ✅ Keep userLevel and userStatus
+    localStorage.setItem("user_access_level", userLevel || "");
+    localStorage.setItem("user_status", userStatus || "");
+
+    localStorage.setItem("sessionVerified", "1");
+
+    // ✅ ADD: Save login timestamp
+    const now = new Date().getTime();
+    localStorage.setItem("loginTime", now);
+
+    this.clearPendingUser();
+
+    return finalId;
+  }
+
+  static getCurrentUser() {
+    const userId = localStorage.getItem("userId");
+    const email = localStorage.getItem("userEmail");
+    const firstname = localStorage.getItem("userFirstname");
+    const lastname = localStorage.getItem("userLastname");
+    const user_access_level = localStorage.getItem("user_access_level") || "";
+    const user_status = localStorage.getItem("user_status") || "";
+
+    return {
+      userId,
+      email,
+      firstname,
+      lastname,
+      user_access_level,
+      user_status,
+    };
+  }
+
   /** AUTHENTICATION CHECKER **/
   static logout() {
     const keysToRemove = [
@@ -198,10 +274,40 @@ class UserService {
       "picture",
     ];
     keysToRemove.forEach((key) => localStorage.removeItem(key));
+    localStorage.removeItem("userId");
+    localStorage.removeItem("sessionVerified");
+    localStorage.removeItem("loginTime"); // ✅ IMPORTANT
+
+    localStorage.removeItem("userEmail");
+    localStorage.removeItem("userFirstname");
+    localStorage.removeItem("userLastname");
+
+    // ✅ Clear user access data
+    localStorage.removeItem("user_access_level");
+    localStorage.removeItem("user_status");
+
+    this.clearPendingUser();
   }
 
   static isAuthenticated() {
-    return !!localStorage.getItem("token") && !!localStorage.getItem("userid");
+    const userId = localStorage.getItem("userId");
+    const sessionVerified = localStorage.getItem("sessionVerified");
+    const loginTime = localStorage.getItem("loginTime");
+
+    if (!userId || sessionVerified !== "1" || !loginTime) {
+      return false;
+    }
+
+    const now = new Date().getTime();
+    const twelveHours = 12 * 60 * 60 * 1000;
+
+    // ⛔ Expired session
+    if (now - Number(loginTime) > twelveHours) {
+      this.logout();
+      return false;
+    }
+
+    return true;
   }
 
   static getStoredUser() {
@@ -231,7 +337,7 @@ class UserService {
         lastname,
         middlename,
         picture,
-      })
+      }),
     );
   }
 

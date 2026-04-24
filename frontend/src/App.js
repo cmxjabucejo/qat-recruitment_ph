@@ -1,11 +1,12 @@
 // src/App.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Routes,
   Route,
   Navigate,
   useLocation,
   useNavigate,
+  Outlet,
 } from "react-router-dom";
 
 import "./App.css";
@@ -22,110 +23,236 @@ import EOLAssessment from "./components/Routes/EOLAssessment";
 import RecruitmentTracker from "./components/Routes/RecruitmentTracker";
 import Dashboard from "./components/Routes/Dashboard";
 
+import SessionExpiredModal from "./components/common/SessionExpiredModal";
+import SessionWarningModal from "./components/common/SessionWarningModal";
+import IdleWarningModal from "./components/common/IdleWarningModal";
+
+import useUnifiedSessionTimer from "./components/lib/useUnifiedSessionTimer";
+
+import { SERVER_URL } from "./components/lib/constants";
+
+function RequireAuth({ isAuthed }) {
+  const location = useLocation();
+
+  if (isAuthed === false) {
+    return (
+      <Navigate to="/OauthLogin" replace state={{ from: location.pathname }} />
+    );
+  }
+
+  return <Outlet />;
+}
+
+/*
+========================================
+🔐 ROLE GUARD
+========================================
+*/
+function RequireAdminOrHigher({ user }) {
+  const location = useLocation();
+
+  if (user?.userLevel === "User") {
+    return <AccessDenied />;
+  }
+
+  return <Outlet />;
+}
+/*
+========================================
+🔐 REDIRECT IF AUTHED
+========================================
+*/
+function RedirectIfAuthenticated({ isAuthed, children }) {
+  return isAuthed === true ? <Navigate to="/tracker" replace /> : children;
+}
+
 function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const isAuthenticated = UserService.isAuthenticated();
+  const [isAuthed, setIsAuthed] = useState(null);
+  const [user, setUser] = useState(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
+
+  /*
+  ========================================
+  🔁 REDIRECT
+  ========================================
+  */
+  const handleLoginRedirect = useCallback(() => {
+    window.location.href = "/OauthLogin";
+  }, []);
+
+  /*
+  ========================================
+  🔒 EXPIRE
+  ========================================
+  */
+  const handleExpire = useCallback(async () => {
+    try {
+      await fetch(`${SERVER_URL}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (e) {}
+
+    setSessionExpired(true);
+    setIsAuthed(false);
+    setUser(null);
+    setHasSession(false);
+
+    window.__SESSION_EXPIRED__ = true;
+  }, []);
+
+  /*
+  ========================================
+  🔍 SESSION CHECK
+  ========================================
+  */
+  useEffect(() => {
+    const publicPaths = [
+      "/",
+      "/OauthLogin",
+      "/Register",
+      "/OTP-SECURE",
+      "/OtpVerification",
+    ];
+    const isPublicPath = publicPaths.includes(location.pathname);
+
+    const checkSession = async () => {
+      try {
+        const res = await fetch(`${SERVER_URL}/auth/session`, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        const contentType = res.headers.get("content-type") || "";
+
+        // ✅ VALID SESSION
+        if (res.ok && contentType.includes("application/json")) {
+          const data = await res.json();
+
+          if (data.success && data.user) {
+            setUser(data.user);
+            setIsAuthed(true);
+            setHasSession(true); // optional (can keep)
+            return;
+          }
+        }
+
+        // ❌ INVALID / EXPIRED SESSION
+        if (!isPublicPath) {
+          handleExpire(); // 🔥 FORCE EXPIRE (single source of truth)
+        } else {
+          setUser(null);
+          setIsAuthed(false);
+        }
+      } catch (err) {
+        console.error("Session check failed:", err);
+
+        // 🔥 ALWAYS EXPIRE on failure (safe default)
+        if (!isPublicPath) {
+          handleExpire();
+        } else {
+          setUser(null);
+          setIsAuthed(false);
+        }
+      }
+    };
+
+    if (window.__SESSION_EXPIRED__) return;
+
+    checkSession();
+  }, [location.pathname, handleExpire]);
+
+  /*
+  ========================================
+  🔔 GLOBAL SESSION EXPIRED
+  ========================================
+  */
+  useEffect(() => {
+    const onSessionExpired = () => handleExpire();
+
+    window.addEventListener("session-expired", onSessionExpired);
+    return () =>
+      window.removeEventListener("session-expired", onSessionExpired);
+  }, [handleExpire]);
+
+  /*
+  ========================================
+  ⏳ TIMERS
+  ========================================
+  */
+  const { showWarning, formattedTime, resetSession } =
+    useUnifiedSessionTimer(handleExpire);
+
+  /*
+  ========================================
+  ⏳ LOADING
+  ========================================
+  */
+  if (isAuthed === null) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-white">
+        <p className="text-gray-500">Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-100">
       <div className="flex-grow">
         <Routes>
-          {/* Public Routes */}
-          <Route path="/" element={<OauthLogin />} />
-          <Route path="/OauthLogin" element={<OauthLogin />} />
-          <Route path="/Register" element={<Register />} />
+          <Route
+            path="/"
+            element={
+              <RedirectIfAuthenticated isAuthed={isAuthed}>
+                <OauthLogin />
+              </RedirectIfAuthenticated>
+            }
+          />
+
+          <Route
+            path="/OauthLogin"
+            element={
+              <RedirectIfAuthenticated isAuthed={isAuthed}>
+                <OauthLogin />
+              </RedirectIfAuthenticated>
+            }
+          />
+
           <Route path="/OtpVerification" element={<OtpVerification />} />
 
           {/* Authenticated Routes */}
-          <Route
-            path="/profile"
-            element={
-              isAuthenticated ? (
-                <ProfilePage />
-              ) : (
-                <Navigate to="/OauthLogin" replace />
-              )
-            }
-          />
-
-          <Route
-            path="/home"
-            element={
-              isAuthenticated && UserService.hasRole(["Admin"]) ? (
-                <Dashboard />
-              ) : (
-                <AccessDenied />
-              )
-            }
-          />
-
-          <Route
-            path="/tracker"
-            element={
-              isAuthenticated && UserService.hasRole(["Admin"]) ? (
-                <RecruitmentTracker />
-              ) : (
-                <AccessDenied />
-              )
-            }
-          />
-
-          <Route
-            path="/EOLAssessment"
-            element={
-              isAuthenticated && UserService.hasRole(["Admin"]) ? (
-                <EOLAssessment />
-              ) : (
-                <AccessDenied />
-              )
-            }
-          />
-
-          <Route
-            path="/typingtest"
-            element={
-              isAuthenticated && UserService.hasRole(["Admin"]) ? (
-                <TypingTest />
-              ) : (
-                <AccessDenied />
-              )
-            }
-          />
-
-          <Route
-            path="/jobposting"
-            element={
-              isAuthenticated && UserService.hasRole(["Admin"]) ? (
-                <JobPosting />
-              ) : (
-                <AccessDenied />
-              )
-            }
-          />
-
-          <Route
-            path="/admin"
-            element={
-              isAuthenticated && UserService.hasRole(["Admin"]) ? (
-                <Admin />
-              ) : (
-                <AccessDenied />
-              )
-            }
-          />
-
-          {/* <Route
-            path="/training"
-            element={
-              isAuthenticated && UserService.hasRole(["Admin", "Manager"]) ? (
-                <TrainingPage />
-              ) : (
-                <AccessDenied />
-              )
-            }
-          /> */}
+          <Route element={<RequireAuth isAuthed={isAuthed} />}>
+            <Route element={<RequireAdminOrHigher user={user} />}>
+              <Route path="/home" element={<Dashboard user={user} />} />
+              <Route
+                path="/tracker"
+                element={<RecruitmentTracker user={user} />}
+              />
+              <Route
+                path="/EOLAssessment"
+                element={<EOLAssessment user={user} />}
+              />
+              <Route path="/typingtest" element={<TypingTest user={user} />} />
+              <Route path="/jobposting" element={<JobPosting user={user} />} />
+            </Route>
+          </Route>
         </Routes>
+
+        <SessionExpiredModal
+          show={sessionExpired}
+          onLogin={handleLoginRedirect}
+        />
+
+        <SessionWarningModal
+          show={showWarning && !sessionExpired}
+          timeLeft={formattedTime}
+          onStayActive={resetSession}
+        />
       </div>
     </div>
   );

@@ -17,7 +17,7 @@ import Header from "../../components/common/Header"; // ✅ Import the new reusa
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
-export default function EOLAssessment() {
+export default function EOLAssessment({ user }) {
   const navigate = useNavigate();
   const tableRef = useRef(null);
 
@@ -52,13 +52,13 @@ export default function EOLAssessment() {
   };
 
   // ✅ FIX: declare user info BEFORE JSX return
-  const userName = localStorage.getItem("name") || "User";
-  const userid = localStorage.getItem("userid") || "";
+  const userName = user.fullName || localStorage.getItem("name") || "User";
+  const userid = user.userid || localStorage.getItem("userid") || "";
 
   /* ===================== DATA ===================== */
   const fetchData = async () => {
     try {
-      const res = await axios.get(`${SERVER_URL}/api/eolAssessment`);
+      const res = await axios.get(`${SERVER_URL}/assessments/eol-assessment`);
       setRows(res.data);
       setFilteredRows(res.data);
     } catch (err) {

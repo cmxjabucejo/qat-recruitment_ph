@@ -1,14 +1,21 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { SERVER_URL } from "../lib/constants";
 import logo from "../../assets/cmxlogo-removebg-preview.png";
 import UserService from "../service/UserService";
+import { apiFetch } from "../lib/apiFetch";
 
 const OauthLogin = () => {
   const navigate = useNavigate();
   const [error, setError] = useState("");
   const [email, setEmail] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [dots, setDots] = useState("");
+
+  const isCallmaxEmail = (value) => {
+    const trimmed = (value || "").trim().toLowerCase();
+    return trimmed.endsWith("@callmaxsolutions.com");
+  };
 
   const location = useLocation();
   const params = new URLSearchParams(location.search);
@@ -25,10 +32,18 @@ const OauthLogin = () => {
       return;
     }
 
+    if (!isCallmaxEmail(email)) {
+      setError("Please use your Callmax email address.");
+      return;
+    }
+
     setIsSending(true);
 
     try {
-      const checkRes = await fetch(`${SERVER_URL}/auth/check-email`, {
+      // ===============================
+      // 1️⃣ CHECK EMAIL
+      // ===============================
+      const checkRes = await apiFetch(`${SERVER_URL}/auth/check-email`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
@@ -36,56 +51,62 @@ const OauthLogin = () => {
 
       const checkData = await checkRes.json();
 
-      if (checkRes.status === 403) {
-        setError(checkData.error || "Use Google login for this email.");
-        return;
-      }
-
       if (!checkRes.ok || !checkData.success) {
-        setError(checkData.error || "Email is not registered.");
+        setError(checkData.error || "Email is not authorized.");
         return;
       }
 
-      const { firstname, lastname, middlename } = checkData.user || {};
-      UserService.setPendingApplicant({
-        email,
-        firstname: firstname || "",
-        lastname: lastname || "",
-        middlename: middlename || "",
-        picture: "/default-avatar.png",
-      });
+      const user = checkData.user;
 
-      const requestedDateTime = new Date();
-      const expiryDateTime = new Date(requestedDateTime.getTime() + 5 * 60000);
+      if (user.userStatus?.toLowerCase() !== "active") {
+        setError("This account is not active.");
+        return;
+      }
 
-      const otpRes = await fetch(`${SERVER_URL}/auth/send-otp`, {
+      // optional (UI only)
+      UserService.setPendingUser(user);
+
+      // ===============================
+      // 2️⃣ SEND OTP (SECURE)
+      // ===============================
+      const otpRes = await apiFetch(`${SERVER_URL}/auth/send-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          emailAddress: email, // ✅ correct key
-        }),
+        body: JSON.stringify({ emailAddress: email }),
       });
 
-      if (!otpRes.ok) {
-        setError("Failed to send OTP. Please try again.");
+      if (!otpRes) return;
+
+      // 🔥 HANDLE RATE LIMIT FIRST
+      if (otpRes.status === 429) {
+        const result = await otpRes.json();
+        setError(result.message || "Too many requests. Please wait.");
         return;
       }
 
       const result = await otpRes.json();
-      localStorage.setItem("pendingOtpHashed", result.otpHashed);
-      localStorage.setItem(
-        "pendingRequestedAt",
-        requestedDateTime.toISOString(),
-      );
-      localStorage.setItem("pendingExpiryAt", expiryDateTime.toISOString());
 
+      if (!otpRes.ok || !result.success) {
+        setError(result.message || "Failed to send OTP.");
+        return;
+      }
+
+      // ===============================
+      // ✅ STORE SECURE DATA
+      // ===============================
+      localStorage.setItem("pendingChallengeId", result.challengeId);
+      localStorage.setItem("pendingEmail", email);
+      localStorage.setItem("pendingExpiryAt", result.expiresAt);
+      localStorage.setItem("otpCooldownStart", Date.now());
+
+      // ===============================
+      // 3️⃣ GO TO OTP PAGE
+      // ===============================
       navigate(
         `/OtpVerification?redirect=${encodeURIComponent(redirectPath)}`,
         {
           state: {
             emailAddress: email,
-            requestedDateTime,
-            expiryDateTime,
             flow: "login",
             redirectPath,
           },
@@ -98,6 +119,22 @@ const OauthLogin = () => {
       setIsSending(false);
     }
   };
+
+  useEffect(() => {
+    if (!isSending) {
+      setDots("");
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setDots((prev) => {
+        if (prev.length >= 3) return "";
+        return prev + ".";
+      });
+    }, 400);
+
+    return () => clearInterval(interval);
+  }, [isSending]);
 
   return (
     <div className="flex justify-center items-center min-h-screen bg-toolbar-gradient  px-4">

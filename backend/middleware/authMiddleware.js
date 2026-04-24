@@ -1,21 +1,3 @@
-// const jwt = require("jsonwebtoken");
-
-// const authToken = (req, res, next) => {
-//   const token = req.headers.authorization?.split(" ")[1];
-
-//   if (!token) return res.status(401).json({ message: "Token is required" });
-
-//   try {
-//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-//     req.user = decoded; // Attach decoded token data to `req.user`
-//     next();
-//   } catch (error) {
-//     return res.status(401).json({ message: "Invalid token" });
-//   }
-// };
-
-// module.exports = authToken;
-
 const jwt = require("jsonwebtoken");
 
 const authToken = (req, res, next) => {
@@ -44,4 +26,41 @@ const authToken = (req, res, next) => {
   }
 };
 
-module.exports = authToken;
+function requireAuth(req, res, next) {
+  if (!req.session || !req.session.user) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized",
+    });
+  }
+
+  next();
+}
+
+function requireRole(...allowedRoles) {
+  return (req, res, next) => {
+    const sessionUser = req.session?.user;
+
+    if (!sessionUser) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    if (!allowedRoles.includes(sessionUser.userLevel)) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden",
+      });
+    }
+
+    next();
+  };
+}
+
+module.exports = {
+  requireAuth,
+  requireRole,
+  authToken,
+};

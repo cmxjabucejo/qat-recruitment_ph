@@ -6,7 +6,9 @@ import "react-toastify/dist/ReactToastify.css";
 import Header from "../common/Header";
 import Sidebar from "../common/Sidebar";
 
-const Admin = () => {
+const Admin = ({ user }) => {
+  const userName = user.fullName || localStorage.getItem("name") || "User";
+  const userId = user.userid || localStorage.getItem("userid") || "";
   const [formData, setFormData] = useState({
     employeeid: "",
     firstname: "",
@@ -25,24 +27,17 @@ const Admin = () => {
   });
 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [userId, setUserId] = useState("");
-  const [userName, setUserName] = useState("");
   const [employeeList, setEmployeeList] = useState([]);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
 
   useEffect(() => {
-    const storedUserId = localStorage.getItem("userid");
-    const storedName = localStorage.getItem("name");
-    setUserId(storedUserId);
-    setUserName(storedName);
-
     fetchEmployees();
   }, []);
 
   const fetchEmployees = async () => {
     try {
-      const res = await axios.get(`${SERVER_URL}/api/admin/list-employees`);
+      const res = await axios.get(`${SERVER_URL}/admin/list-employees`);
       setEmployeeList(res.data || []);
     } catch (error) {
       console.error("Failed to fetch employees:", error);
@@ -400,14 +395,14 @@ const Admin = () => {
                         "employeestatus",
                       ];
                       const missingFields = requiredFields.filter(
-                        (field) => !selectedEmployee[field]?.trim()
+                        (field) => !selectedEmployee[field]?.trim(),
                       );
 
                       if (missingFields.length > 0) {
                         toast.error(
                           `❌ Please fill in all required fields: ${missingFields
                             .map((f) => fieldLabelMap[f] || f)
-                            .join(", ")}`
+                            .join(", ")}`,
                         );
                         return;
                       }
@@ -415,7 +410,7 @@ const Admin = () => {
                       try {
                         await axios.put(
                           `${SERVER_URL}/api/admin/update-employee`,
-                          selectedEmployee
+                          selectedEmployee,
                         );
                         toast.success("✅ Employee updated successfully");
                         setIsEditModalOpen(false);

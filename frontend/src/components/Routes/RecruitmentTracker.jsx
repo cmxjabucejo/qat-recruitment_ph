@@ -17,6 +17,7 @@ import EditCandidateInfoModal from "../../components/modals/EditCandidateInfoMod
 import UpdateCandidateLifecycleModal from "../../components/modals/UpdateCandidateLifecycleModal";
 
 import { HiCheckCircle, HiXCircle } from "react-icons/hi";
+import { apiFetch } from "../lib/apiFetch";
 
 // Helper
 const formatDate = (iso) => {
@@ -25,10 +26,10 @@ const formatDate = (iso) => {
   return isNaN(date.getTime()) ? "—" : format(date, "MMM dd, yyyy");
 };
 
-function RecruitmentTracker() {
+function RecruitmentTracker({ user }) {
   const navigate = useNavigate();
-  const userName = localStorage.getItem("name") || "User";
-  const userid = localStorage.getItem("userid") || "";
+  const userName = user.fullName || localStorage.getItem("name") || "User";
+  const userid = user.userid || localStorage.getItem("userid") || "";
   const [trackers, setTrackers] = useState([]);
   const [filteredTrackers, setFilteredTrackers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -76,7 +77,9 @@ function RecruitmentTracker() {
     try {
       setLoading(true); // Start loading
 
-      const response = await fetch(`${SERVER_URL}/api/recruitment_tracker`);
+      const response = await apiFetch(
+        `${SERVER_URL}/applicants/recruitment-tracker`,
+      );
       if (!response.ok) {
         throw new Error(`Server responded with ${response.status}`);
       }
@@ -181,14 +184,19 @@ function RecruitmentTracker() {
     ...new Set(trackers.map((t) => t.recruiter)),
   ].filter(Boolean);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     try {
-      localStorage.clear();
-      navigate("/OauthLogin");
-    } catch (error) {
-      console.error("Logout Error:", error);
-      alert("Logout failed. Please try again.");
+      await apiFetch(`${SERVER_URL}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (err) {
+      console.error("Logout failed:", err);
     }
+
+    // 🔥 Force clean state + redirect
+    navigate("/OauthLogin", { replace: true });
+    window.location.reload(); // ensures session reset
   };
 
   const formatRangeLabel = () => {
@@ -208,7 +216,7 @@ function RecruitmentTracker() {
   const fetchAccountList = async () => {
     try {
       // console.log("Calling API to fetch account list...");
-      const response = await fetch(`${SERVER_URL}/api/accountList`);
+      const response = await apiFetch(`${SERVER_URL}/accounts/accountlist`);
 
       if (!response.ok) {
         console.error(
@@ -248,8 +256,8 @@ function RecruitmentTracker() {
   const fetchLobList = async (account) => {
     try {
       // console.log(`Fetching LOBs for account: ${account}`);
-      const response = await fetch(
-        `${SERVER_URL}/api/lobList?account=${encodeURIComponent(
+      const response = await apiFetch(
+        `${SERVER_URL}/accounts/lobList?account=${encodeURIComponent(
           account.toLowerCase(),
         )}`,
       );
@@ -278,8 +286,8 @@ function RecruitmentTracker() {
   const fetchTaskList = async (account, lob) => {
     try {
       // console.log(`Fetching Tasks for account: ${account}, lob: ${lob}`);
-      const response = await fetch(
-        `${SERVER_URL}/api/taskList?account=${encodeURIComponent(
+      const response = await apiFetch(
+        `${SERVER_URL}/accounts/tasklist?account=${encodeURIComponent(
           account.toLowerCase(),
         )}&lob=${encodeURIComponent(lob.toLowerCase())}`, // Normalize to lowercase
       );
@@ -314,8 +322,8 @@ function RecruitmentTracker() {
       }
 
       // console.log(`Fetching ACCOUNTCODE for account: ${account}, lob: ${lob}, task: ${task}`);
-      const response = await fetch(
-        `${SERVER_URL}/api/accountCode?account=${encodeURIComponent(
+      const response = await apiFetch(
+        `${SERVER_URL}/accounts/accountcode?account=${encodeURIComponent(
           account.toLowerCase(),
         )}&lob=${encodeURIComponent(
           lob.toLowerCase(),
@@ -393,7 +401,10 @@ function RecruitmentTracker() {
 
   const fetchRecruiters = async () => {
     try {
-      const response = await axios.get(`${SERVER_URL}/api/RecruitersList`);
+      const response = await axios.get(
+        `${SERVER_URL}/applicants/recruiters-list`,
+        { withCredentials: true },
+      );
 
       // Extract the nested array
       const nestedRecruiters = response.data[0];
@@ -632,7 +643,7 @@ function RecruitmentTracker() {
       }
 
       const response = await axios.put(
-        `${SERVER_URL}/updateApplicant`,
+        `${SERVER_URL}/applicants/updateapplicant`,
         formDataToSend,
         {
           headers: {
@@ -646,7 +657,7 @@ function RecruitmentTracker() {
 
         // ✅ Refetch single updated candidate
         const freshRes = await axios.get(
-          `${SERVER_URL}/getCandidate/${formData.applicationid}`,
+          `${SERVER_URL}/applicants/getcandidate/${formData.applicationid}`,
         );
         const rawData = freshRes.data;
         const normalized = normalizeFormData(rawData);
@@ -699,8 +710,8 @@ function RecruitmentTracker() {
     if (!formData.voiceUrl && formData.applicationId) {
       const fetchVoiceUrl = async () => {
         try {
-          const res = await fetch(
-            `${SERVER_URL}/api/voice-recording/${formData.applicationId}`,
+          const res = await apiFetch(
+            `${SERVER_URL}/mediafiles/voice-recording/${formData.applicationId}`,
           );
           const data = await res.json();
 
@@ -791,10 +802,13 @@ function RecruitmentTracker() {
 
     setIsSendingVoice(true);
     try {
-      const response = await axios.post(`${SERVER_URL}/voiceRecordingEmail`, {
-        emailAddress: formData.candidateemail1,
-        applicantID: formData.applicationid,
-      });
+      const response = await axios.post(
+        `${SERVER_URL}/emails/voice_recording_email`,
+        {
+          emailAddress: formData.candidateemail1,
+          applicantID: formData.applicationid,
+        },
+      );
 
       if (response.data.success) {
         alert("Voice recording email sent successfully.");
@@ -819,10 +833,13 @@ function RecruitmentTracker() {
 
     setIsSendingTyping(true);
     try {
-      const response = await axios.post(`${SERVER_URL}/typingTestEmail`, {
-        emailAddress: formData.candidateemail1,
-        applicantID: formData.applicationid,
-      });
+      const response = await axios.post(
+        `${SERVER_URL}/emails/typing_test_email`,
+        {
+          emailAddress: formData.candidateemail1,
+          applicantID: formData.applicationid,
+        },
+      );
 
       if (response.data.success) {
         alert("Typing test email sent successfully.");
@@ -845,7 +862,7 @@ function RecruitmentTracker() {
 
     setIsSendingEOL(true);
     try {
-      const response = await axios.post(`${SERVER_URL}/eolEmail`, {
+      const response = await axios.post(`${SERVER_URL}/emails/eol_email`, {
         emailAddress: formData.candidateemail1,
         applicantID: formData.applicationid,
       });
@@ -1006,7 +1023,7 @@ function RecruitmentTracker() {
     if (field === "candidatecvattachment") {
       return (
         <a
-          href={`${SERVER_URL}/api/resume/${value}`}
+          href={`${SERVER_URL}/mediafiles/resume/${value}`}
           target="_blank"
           rel="noopener noreferrer"
           className="text-blue-600 underline break-all"
@@ -1040,7 +1057,7 @@ function RecruitmentTracker() {
       });
 
       const response = await axios.put(
-        `${SERVER_URL}/editApplicant`,
+        `${SERVER_URL}/applicants/editapplicant`,
         formDataToSend,
         {
           headers: { "Content-Type": "multipart/form-data" },
@@ -1136,7 +1153,7 @@ function RecruitmentTracker() {
     try {
       // 🔍 Check if email already exists
       const checkResponse = await axios.post(
-        `${SERVER_URL}/api/checkEmailExists`,
+        `${SERVER_URL}/auth/check-email-exists`,
         {
           email1: formData.candidateemail1,
           email2: formData.candidateemail2,
@@ -1188,7 +1205,7 @@ function RecruitmentTracker() {
        ✅ SUBMIT TO BACKEND
     ====================================================== */
       const response = await axios.post(
-        `${SERVER_URL}/addApplicants`,
+        `${SERVER_URL}/applicants/addapplicants`,
         formDataWithAttachment,
         {
           headers: {
@@ -1239,7 +1256,7 @@ function RecruitmentTracker() {
 
   const sendAcknowledgmentEmail = async () => {
     try {
-      await axios.post(`${SERVER_URL}/api/send_acknowledgment`, {
+      await axios.post(`${SERVER_URL}/emails/send_acknowledgement`, {
         email: formData.candidateemail1,
       });
       alert(`Acknowledgment email sent to ${formData.candidateemail1}.`);
@@ -1679,8 +1696,8 @@ function RecruitmentTracker() {
                                 // 🟡 Open blank tab first to prevent browser popup block
                                 const newTab = window.open("", "_blank");
 
-                                const res = await fetch(
-                                  `${SERVER_URL}/api/resume/${item.candidatecvattachment}`,
+                                const res = await apiFetch(
+                                  `${SERVER_URL}/mediafiles/resume/${item.candidatecvattachment}`,
                                 );
                                 const data = await res.json();
 
@@ -1858,7 +1875,7 @@ function RecruitmentTracker() {
                       onClick={async () => {
                         try {
                           const res = await axios.get(
-                            `${SERVER_URL}/getCandidate/${selected.applicationid}`,
+                            `${SERVER_URL}/applicants/getcandidate/${selected.applicationid}`,
                           );
 
                           const rawData = res.data;
@@ -1886,7 +1903,7 @@ function RecruitmentTracker() {
                       className="w-fit px-4 py-2.5 rounded-xl bg-slate-600 hover:bg-slate-700 text-white text-sm shadow-sm"
                       onClick={async () => {
                         const freshRes = await axios.get(
-                          `${SERVER_URL}/getCandidate/${selected.applicationid}`,
+                          `${SERVER_URL}/applicants/getcandidate/${selected.applicationid}`,
                         );
 
                         const rawData = freshRes.data;

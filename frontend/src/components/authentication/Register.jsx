@@ -32,7 +32,7 @@ const Register = () => {
     setIsSubmitting(true);
 
     try {
-      const registerRes = await fetch(`${SERVER_URL}/api/register`, {
+      const registerRes = await fetch(`${SERVER_URL}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -67,12 +67,12 @@ const Register = () => {
             email: trimmedEmail,
             phone_num: trimmedPhone,
             middlename: "", // Optional — will be included in final DB insert
-          })
+          }),
         );
 
         const requestedDateTime = new Date();
         const expiryDateTime = new Date(
-          requestedDateTime.getTime() + 5 * 60000
+          requestedDateTime.getTime() + 5 * 60000,
         );
 
         // ✅ Request OTP correctly
@@ -84,7 +84,7 @@ const Register = () => {
             body: JSON.stringify({
               emailAddress: trimmedEmail,
             }),
-          }
+          },
         );
 
         if (!otpRes.ok) {

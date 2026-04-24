@@ -279,7 +279,8 @@ export default function EditCandidateInfoModal({
                   className="text-blue-600 underline text-sm"
                   onClick={async () => {
                     const res = await axios.get(
-                      `${SERVER_URL}/api/resume/${formData.candidatecvattachment}`,
+                      `${SERVER_URL}/mediafiles/resume/${formData.candidatecvattachment}`,
+                      { withCredentials: true },
                     );
                     window.open(res.data.url, "_blank");
                     markApplicantAsViewed(formData.applicationid);

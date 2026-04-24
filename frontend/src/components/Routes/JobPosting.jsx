@@ -46,7 +46,7 @@ const formatShortDate = (iso) => {
   });
 };
 
-export default function JobPosting() {
+export default function JobPosting({ user }) {
   const navigate = useNavigate();
 
   const [statusModal, setStatusModal] = useState({
@@ -176,7 +176,7 @@ export default function JobPosting() {
   useEffect(() => {
     const fetchPostings = async () => {
       try {
-        const res = await fetch(`${SERVER_URL}/api/job_postings`);
+        const res = await fetch(`${SERVER_URL}/jobposts/job_postings`);
         const data = await res.json();
         if (data.success) {
           const jobs = data.data;
@@ -204,8 +204,8 @@ export default function JobPosting() {
   }, []);
 
   // ✅ FIX: declare user info BEFORE JSX return
-  const userName = localStorage.getItem("name") || "User";
-  const userid = localStorage.getItem("userid") || "";
+  const userName = user.fullName || localStorage.getItem("name") || "User";
+  const userid = user.userid || localStorage.getItem("userid") || "";
 
   const FilterChip = ({ icon, label, onClick }) => (
     <button
@@ -230,7 +230,9 @@ export default function JobPosting() {
 
     try {
       // 1. Get the max ID to generate a job code
-      const resMaxId = await fetch(`${SERVER_URL}/api/job_postings/max-id`);
+      const resMaxId = await fetch(
+        `${SERVER_URL}/jobposts/job_postings/max-id`,
+      );
       const { maxId } = await resMaxId.json();
       const newId = maxId + 1;
 
@@ -243,7 +245,7 @@ export default function JobPosting() {
       };
 
       // 3. Submit to backend
-      const res = await fetch(`${SERVER_URL}/api/job_postings`, {
+      const res = await fetch(`${SERVER_URL}/jobposts/job_postings`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -266,7 +268,7 @@ export default function JobPosting() {
         });
 
         // Re-fetch job postings
-        const postingsRes = await fetch(`${SERVER_URL}/api/job_postings`);
+        const postingsRes = await fetch(`${SERVER_URL}/jobposts/job_postings`);
         const postingsData = await postingsRes.json();
         if (postingsData.success) {
           setPostings(postingsData.data);
@@ -300,7 +302,7 @@ export default function JobPosting() {
   // Fetch max ID from job postings for job code generation
   const fetchMaxId = async () => {
     try {
-      const res = await fetch(`${SERVER_URL}/api/job_postings/max-id`);
+      const res = await fetch(`${SERVER_URL}/jobposts/job_postings/max-id`);
       const data = await res.json();
       if (data.success) {
         setMaxId(data.maxId + 1); // increment for new record
@@ -339,7 +341,7 @@ export default function JobPosting() {
 
   const handleEditJobPosting = async (updatedData, id) => {
     try {
-      const res = await fetch(`${SERVER_URL}/api/job_postings/${id}`, {
+      const res = await fetch(`${SERVER_URL}/jobposts/job_postings/${id}`, {
         method: "PUT", // or "PATCH" depending on backend
         headers: {
           "Content-Type": "application/json",

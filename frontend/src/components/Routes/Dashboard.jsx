@@ -24,6 +24,7 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
+import { apiFetch } from "../lib/apiFetch";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -51,10 +52,9 @@ const departments = [
   "Recruitment",
 ];
 
-const userName = localStorage.getItem("name") || "User";
-const userid = localStorage.getItem("userid") || "";
-
-const Dashboard = () => {
+const Dashboard = ({ user }) => {
+  const userName = user.fullName || localStorage.getItem("name") || "User";
+  const userid = user.userid || localStorage.getItem("userid") || "";
   const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -105,7 +105,7 @@ const Dashboard = () => {
   /* ================== FETCH DATA ================== */
   useEffect(() => {
     setLoading(true);
-    fetch(`${SERVER_URL}/api/applicantsList`)
+    apiFetch(`${SERVER_URL}/applicants/applicants-list`)
       .then((res) => res.json())
       .then((resData) => {
         const rawData = resData.data || [];
