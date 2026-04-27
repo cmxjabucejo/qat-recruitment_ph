@@ -1,8 +1,7 @@
-
 import { useEffect, useRef, useState } from "react";
 
-const SESSION_DURATION = 15 * 60 * 1000; // 15 minutes
-const WARNING_TIME = 1 * 60 * 1000;      // last 1 minute
+const SESSION_DURATION = 300 * 60 * 1000; // 15 minutes
+const WARNING_TIME = 2 * 60 * 1000; // last 1 minute
 
 export default function useUnifiedSessionTimer(onExpire) {
   const [showWarning, setShowWarning] = useState(false);
