@@ -3,7 +3,7 @@ const router = express.Router();
 const db = require("../config/dbconfig");
 const { requireAuth } = require("../middleware/authMiddleware");
 
-router.get("job_postings", async (req, res) => {
+router.get("/job_postings", async (req, res) => {
   // console.log("📡 [GET] /api/job_postings");
   try {
     const [rows] = await db.execute(`

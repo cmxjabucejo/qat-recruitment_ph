@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require("../config/dbconfig");
 const { requireAuth } = require("../middleware/authMiddleware");
 const { upload } = require("../utils/helpers");
+const BUCKET_NAME = process.env.BUCKET_NAME;
 
 router.get("/applicants-list", requireAuth, async (req, res) => {
   // Prevent caching
