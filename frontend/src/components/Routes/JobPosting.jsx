@@ -1,21 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import {
-  HiHome,
-  HiClipboardList,
-  HiDocumentText,
-  HiPencilAlt,
-  HiBriefcase,
-  HiCheckCircle,
-  HiXCircle,
-} from "react-icons/hi";
+import { HiCheckCircle, HiXCircle } from "react-icons/hi";
 import { DateRange } from "react-date-range";
 import { format } from "date-fns";
 import "react-date-range/dist/styles.css";
 import "react-date-range/dist/theme/default.css";
 import SidebarIcons from "../../components/common/Sidebar"; // adjust path as needed
 import Header from "../../components/common/Header"; // ✅ Import the new reusable Header
-import callmaxCover from "../../assets/cmxlogo-removebg-preview.png";
 import searchIcon from "../../assets/search_symbol.png";
 import { SERVER_URL } from "../lib/constants";
 import { apiFetch } from "../lib/apiFetch";
@@ -47,8 +37,7 @@ const formatShortDate = (iso) => {
   });
 };
 
-export default function JobPosting({ user }) {
-  const navigate = useNavigate();
+export default function JobPosting() {
 
   const [statusModal, setStatusModal] = useState({
     isOpen: false,
@@ -71,9 +60,6 @@ export default function JobPosting({ user }) {
   const [filteredPostings, setFilteredPostings] = useState([]);
   const [selectedPosting, setSelectedPosting] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
   const [sortOrder, setSortOrder] = useState("newest"); // or "oldest"
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [departmentOptions, setDepartmentOptions] = useState([]);
@@ -99,16 +85,6 @@ export default function JobPosting({ user }) {
       return () => clearTimeout(timer); // Cleanup if component unmounts or modal closes early
     }
   }, [statusModal.isOpen]);
-
-  const handleLogout = () => {
-    try {
-      localStorage.clear();
-      navigate("/OauthLogin");
-    } catch (error) {
-      console.error("Logout Error:", error);
-      alert("Logout failed. Please try again.");
-    }
-  };
 
   const formatRangeLabel = () => {
     const { startDate, endDate } = dateRange[0];
@@ -204,19 +180,6 @@ export default function JobPosting({ user }) {
     fetchPostings();
   }, []);
 
-  // ✅ FIX: declare user info BEFORE JSX return
-  const userName = user.fullName || localStorage.getItem("name") || "User";
-  const userid = user.userid || localStorage.getItem("userid") || "";
-
-  const FilterChip = ({ icon, label, onClick }) => (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-1 text-sm px-3 py-1 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition"
-    >
-      <span>{icon}</span>
-      <span>{label}</span>
-    </button>
-  );
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -399,14 +362,7 @@ export default function JobPosting({ user }) {
 
       {/* ───── MAIN CONTENT (Header + Table + Preview) ───── */}
       <div className="flex-1 flex flex-col">
-        {/* ───── HEADER (INSERTED HERE) ───── */}
-        {/* ───── DARK COMPACT HEADER ───── */}
-        <Header
-          userName={userName}
-          userid={userid}
-          onLogoutClick={() => setIsLogoutModalVisible(true)}
-          pageTitle="Job Postings"
-        />
+        <Header pageTitle="Job Posting" />
 
         {/* CONTENT SPLIT */}
         {/* ───── CONTENT SPLIT ───── */}
@@ -841,37 +797,6 @@ export default function JobPosting({ user }) {
               </div>
             </div>
 
-            {isLogoutModalVisible && (
-              <div
-                className="absolute inset-0 bg-black/30 z-50 flex items-center justify-center"
-                onClick={() => setIsLogoutModalVisible(false)}
-              >
-                <div
-                  className="bg-white rounded-lg shadow-lg p-6 w-[300px] text-center"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <h2 className="text-lg font-semibold mb-2">Confirm Logout</h2>
-                  <p className="text-sm text-slate-600 mb-4">
-                    Are you sure you want to log out?
-                  </p>
-
-                  <div className="flex justify-center gap-4">
-                    <button
-                      onClick={handleLogout}
-                      className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition"
-                    >
-                      Logout
-                    </button>
-                    <button
-                      onClick={() => setIsLogoutModalVisible(false)}
-                      className="bg-slate-200 px-4 py-2 rounded-md hover:bg-slate-300 transition"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* ───── RIGHT: PREVIEW PANEL (STATIC) ───── */}

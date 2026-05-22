@@ -1,9 +1,7 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect, useRef } from "react";
 import { DateRange } from "react-date-range";
 import { format } from "date-fns";
 import { enUS } from "date-fns/locale";
-import axios from "axios";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import { Doughnut } from "react-chartjs-2";
@@ -12,59 +10,105 @@ import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import Sidebar from "../common/Sidebar";
 import { SERVER_URL } from "../lib/constants";
 import searchIcon from "../../assets/search_symbol.png";
-import downloadIcon from "../../assets/download_icon.png";
-import Header from "../../components/common/Header"; // ✅ Import the new reusable Header
+import Header from "../../components/common/Header";
+import { apiFetch } from "../lib/apiFetch";
+
+import "react-date-range/dist/styles.css";
+import "react-date-range/dist/theme/default.css";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
-export default function EOLAssessment({ user }) {
-  const navigate = useNavigate();
+const normalizeRows = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.result)) return payload.result;
+  if (Array.isArray(payload?.rows)) return payload.rows;
+  if (Array.isArray(payload?.[0])) return payload[0];
+  return [];
+};
+
+const safeNumber = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+};
+
+const percentText = (value) => {
+  if (value === null || value === undefined || value === "") return "—";
+
+  const num = Number(value);
+
+  if (!Number.isFinite(num)) return "—";
+
+  return `${(num * 100).toFixed(2)}%`;
+};
+
+const formatDate = (value) => {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return format(date, "MMM dd, yyyy");
+};
+
+export default function EOLAssessment() {
   const tableRef = useRef(null);
 
   const [rows, setRows] = useState([]);
   const [filteredRows, setFilteredRows] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRow, setSelectedRow] = useState(null);
-  const [selectedRowIndex, setSelectedRowIndex] = useState(null); // ✅ new
-  const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
+  const [selectedRowIndex, setSelectedRowIndex] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [fetchError, setFetchError] = useState("");
+
   const [dateRange, setDateRange] = useState([
     { startDate: null, endDate: null, key: "selection" },
   ]);
+
   const [showCalendar, setShowCalendar] = useState(false);
 
-  const handleLogout = () => {
-    try {
-      localStorage.clear();
-      navigate("/OauthLogin");
-    } catch (error) {
-      console.error("Logout Error:", error);
-      alert("Logout failed. Please try again.");
-    }
-  };
-
-  {
-    /* Utility to format the button label */
-  }
   const formatRangeLabel = () => {
     const { startDate, endDate } = dateRange[0];
+
     if (!startDate || !endDate) return "Select Date Range";
-    return `${format(startDate, "MMM dd, yyyy")} - ${format(endDate, "MMM dd, yyyy")}`;
+
+    return `${format(startDate, "MMM dd, yyyy")} - ${format(
+      endDate,
+      "MMM dd, yyyy",
+    )}`;
   };
 
-  // ✅ FIX: declare user info BEFORE JSX return
-  const userName = user.fullName || localStorage.getItem("name") || "User";
-  const userid = user.userid || localStorage.getItem("userid") || "";
-
-  /* ===================== DATA ===================== */
   const fetchData = async () => {
+    setIsLoading(true);
+    setFetchError("");
+
     try {
-      const res = await axios.get(`${SERVER_URL}/assessments/eol-assessment`, {
-        withCredentials: true,
-      });
-      setRows(res.data);
-      setFilteredRows(res.data);
+      const res = await apiFetch(`${SERVER_URL}/assessments/eol-assessment`);
+
+      if (!res || !res.ok) {
+        throw new Error(`Server responded with ${res?.status || "error"}`);
+      }
+
+      const payload = await res.json();
+      const normalizedRows = normalizeRows(payload);
+
+      setRows(normalizedRows);
+      setFilteredRows(normalizedRows);
+      setSelectedRow(null);
+      setSelectedRowIndex(null);
     } catch (err) {
-      console.error(err);
+      console.error("❌ Failed to fetch EOL assessment data:", err);
+
+      setRows([]);
+      setFilteredRows([]);
+      setSelectedRow(null);
+      setSelectedRowIndex(null);
+
+      setFetchError(err?.message || "Unable to fetch EOL assessment data.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -72,19 +116,24 @@ export default function EOLAssessment({ user }) {
     fetchData();
   }, []);
 
-  /* ===================== FILTER ===================== */
   useEffect(() => {
     const q = searchQuery.toLowerCase();
     const { startDate, endDate } = dateRange[0];
 
-    const filtered = rows.filter((r) => {
-      const matchesSearch = Object.values(r).some((val) =>
+    const safeRows = Array.isArray(rows) ? rows : [];
+
+    const filtered = safeRows.filter((r) => {
+      const matchesSearch = Object.values(r || {}).some((val) =>
         val?.toString().toLowerCase().includes(q),
       );
 
-      const d = new Date(r.assessment_date);
+      const d = new Date(r?.assessment_date);
+      const hasValidDate = !Number.isNaN(d.getTime());
+
       const inRange =
-        (!startDate || d >= startDate) && (!endDate || d <= endDate);
+        !r?.assessment_date ||
+        !hasValidDate ||
+        ((!startDate || d >= startDate) && (!endDate || d <= endDate));
 
       return matchesSearch && inRange;
     });
@@ -92,48 +141,48 @@ export default function EOLAssessment({ user }) {
     setFilteredRows(filtered);
   }, [searchQuery, rows, dateRange]);
 
-  /* ===================== ANALYTICS ===================== */
+  const safeFilteredRows = Array.isArray(filteredRows) ? filteredRows : [];
+  const totalEntries = safeFilteredRows.length;
 
-  const totalEntries = filteredRows.length;
-
-  // Average English Score
   const averageEnglishScore = totalEntries
     ? (
-        filteredRows.reduce(
-          (sum, r) => sum + parseFloat(r.overall_score || 0),
+        (safeFilteredRows.reduce(
+          (sum, r) => sum + safeNumber(r.overall_score),
           0,
-        ) / totalEntries
-      ).toFixed(4) * 100 // Convert to percentage
-    : 0;
+        ) /
+          totalEntries) *
+        100
+      ).toFixed(2)
+    : "0.00";
 
-  // Average Email Etiquette Score
   const averageEmailScore = totalEntries
     ? (
-        filteredRows.reduce(
-          (sum, r) => sum + parseFloat(r.overall_email_score || 0),
+        (safeFilteredRows.reduce(
+          (sum, r) => sum + safeNumber(r.overall_email_score),
           0,
-        ) / totalEntries
-      ).toFixed(4) * 100
-    : 0;
+        ) /
+          totalEntries) *
+        100
+      ).toFixed(2)
+    : "0.00";
 
-  // English Passed/Failed
-  const passedEnglish = filteredRows.filter(
+  const passedEnglish = safeFilteredRows.filter(
     (r) => r.remarks?.toLowerCase() === "passed",
   ).length;
+
   const failedEnglish = totalEntries - passedEnglish;
 
-  // Email Passed/Failed
-  const passedEmail = filteredRows.filter(
-    (r) =>
-      r.email_remarks?.toLowerCase() === "passed" ||
-      r.email_remarks?.toLowerCase() === "pass",
-  ).length;
+  const passedEmail = safeFilteredRows.filter((r) => {
+    const remarks = r.email_remarks?.toLowerCase();
+    return remarks === "passed" || remarks === "pass";
+  }).length;
+
   const failedEmail = totalEntries - passedEmail;
 
-  // Percentages
   const percentagePassedEnglish = totalEntries
     ? ((passedEnglish / totalEntries) * 100).toFixed(2)
     : "0.00";
+
   const percentageFailedEnglish = totalEntries
     ? ((failedEnglish / totalEntries) * 100).toFixed(2)
     : "0.00";
@@ -146,81 +195,62 @@ export default function EOLAssessment({ user }) {
     ? ((failedEmail / totalEntries) * 100).toFixed(2)
     : "0.00";
 
-  //Overall Passed and Failed
   const averageOverallScore = totalEntries
     ? (
-        filteredRows.reduce((sum, r) => {
-          const eng = parseFloat(r.overall_score || 0);
-          const email = parseFloat(r.overall_email_score || 0);
+        (safeFilteredRows.reduce((sum, r) => {
+          const eng = safeNumber(r.overall_score);
+          const email = safeNumber(r.overall_email_score);
           return sum + (eng + email) / 2;
-        }, 0) / totalEntries
-      ).toFixed(4) * 100
-    : 0;
+        }, 0) /
+          totalEntries) *
+        100
+      ).toFixed(2)
+    : "0.00";
 
-  const passedOverall = filteredRows.filter((r) => {
-    const eng = parseFloat(r.overall_score || 0);
-    const email = parseFloat(r.overall_email_score || 0);
+  const passedOverall = safeFilteredRows.filter((r) => {
+    const eng = safeNumber(r.overall_score);
+    const email = safeNumber(r.overall_email_score);
     return (eng + email) / 2 >= 0.75;
   }).length;
+
+  const failedOverall = totalEntries - passedOverall;
 
   const percentagePassedOverall = totalEntries
     ? ((passedOverall / totalEntries) * 100).toFixed(2)
     : "0.00";
 
-  const failedOverall = totalEntries - passedOverall;
-  const percentageFailedOverall = totalEntries
-    ? ((failedOverall / totalEntries) * 100).toFixed(2)
-    : "0.00";
-
-  // Top English and Top Email
-
-  const topEnglish = filteredRows.reduce(
-    (max, r) => ((r.overall_score || 0) > (max.overall_score || 0) ? r : max),
-    {},
-  );
-
-  const topEmail = filteredRows.reduce(
-    (max, r) =>
-      (r.overall_email_score || 0) > (max.overall_email_score || 0) ? r : max,
-    {},
-  );
-
-  /* ===================== EXPORT ===================== */
   const handleExport = () => {
-    const ws = XLSX.utils.json_to_sheet(rows);
+    const exportRows = Array.isArray(filteredRows) ? filteredRows : [];
+
+    if (!exportRows.length) {
+      alert("No data to export.");
+      return;
+    }
+
+    const ws = XLSX.utils.json_to_sheet(exportRows);
     const wb = XLSX.utils.book_new();
+
     XLSX.utils.book_append_sheet(wb, ws, "EOLAssessment");
 
     const buffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+
     saveAs(new Blob([buffer]), "EOL_Assessment.xlsx");
   };
 
-  /* ===================== UI ===================== */
   return (
-    <div className="w-full min-h-screen bg-slate-50 flex text-slate-900">
-      {/* Sidebar */}
+    <div className="flex min-h-screen w-full bg-slate-50 text-slate-900">
       <Sidebar />
 
-      {/* Main */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <Header
-          userName={userName}
-          userid={userid}
-          onLogoutClick={() => setIsLogoutModalVisible(true)}
-          pageTitle="EOL Assessment"
-        />
-        {/* Body */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Left: Table + Filters */}
-          <div className="flex-1 flex flex-col px-6 pb-6">
-            {/* ====== Analytics Section (Single Row Layout) ====== */}
+      <div className="flex flex-1 flex-col">
+        <Header pageTitle="EOL Assessment" />
+
+        <div className="flex min-h-0 flex-1 overflow-hidden text-[13px]">
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-3 pb-3">
             <div
-              className="flex gap-4 pt-4 overflow-x-auto pb-2"
+              className="flex gap-4 overflow-x-auto pb-2 pt-4"
               style={{ scrollSnapType: "x mandatory" }}
             >
-              {/* 📋 Compact Text Analytics */}
-              <div className="flex gap-2 items-start">
+              <div className="flex items-start gap-2">
                 <AnalyticsCard label="Total" value={totalEntries} />
                 <AnalyticsCard
                   label="English Pass"
@@ -240,12 +270,12 @@ export default function EOLAssessment({ user }) {
                 />
               </div>
 
-              {/* 📊 Chart-Based Analytics */}
-              <div className="flex gap-4 items-start">
-                <div className="bg-white rounded-lg px-3 py-2 shadow-sm min-w-[280px]">
-                  <h3 className="text-[11px] font-semibold mb-2">
+              <div className="flex items-start gap-4">
+                <div className="min-w-[280px] rounded-lg bg-white px-3 py-2 shadow-sm">
+                  <h3 className="mb-2 text-[11px] font-semibold">
                     Pass vs Fail Overview
                   </h3>
+
                   <StackedBarChart
                     data={[
                       {
@@ -266,38 +296,48 @@ export default function EOLAssessment({ user }) {
                     ]}
                   />
                 </div>
+
+                <AnalyticsCard
+                  label="Avg English"
+                  value={`${averageEnglishScore}%`}
+                />
+                <AnalyticsCard label="Avg Email" value={`${averageEmailScore}%`} />
+                <AnalyticsCard
+                  label="Avg Overall"
+                  value={`${averageOverallScore}%`}
+                />
               </div>
             </div>
 
-            {/* Filters */}
-            <div className="flex gap-2 items-center mt-4">
+            <div className="mt-4 flex items-center gap-2">
               <div className="relative w-[330px]">
                 <input
-                  className="w-full pl-10 py-2 rounded border"
+                  className="w-full rounded border py-2 pl-10"
                   placeholder="Search candidate, position, score..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
+
                 <img
                   src={searchIcon}
-                  className="w-4 absolute left-3 top-1/2 -translate-y-1/2 opacity-60"
+                  className="absolute left-3 top-1/2 w-4 -translate-y-1/2 opacity-60"
                   alt="search"
                 />
               </div>
 
-              {/* Date Range Toggle Button & Clear Button */}
               <div className="relative inline-block">
-                {/* Toggle + Clear Buttons */}
                 <div className="flex items-center gap-3">
                   <button
+                    type="button"
                     onClick={() => setShowCalendar((prev) => !prev)}
-                    className="text-sm px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 focus:ring-2 focus:ring-blue-300 outline-none"
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300"
                   >
                     {formatRangeLabel()}
                   </button>
 
                   {dateRange[0].startDate && dateRange[0].endDate && (
                     <button
+                      type="button"
                       onClick={() => {
                         setDateRange([
                           {
@@ -313,14 +353,21 @@ export default function EOLAssessment({ user }) {
                       Clear
                     </button>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={handleExport}
+                    className="rounded-lg border border-green-200 bg-green-100 px-4 py-2 text-sm text-green-800 hover:bg-green-200"
+                  >
+                    Export
+                  </button>
                 </div>
 
-                {/* Date Picker - positioned to the right */}
                 {showCalendar && (
-                  <div className="absolute top-full left-full ml-2 z-50">
-                    <div className="bg-white border border-slate-200 shadow-md rounded-xl inline-block">
+                  <div className="absolute left-full top-full z-50 ml-2">
+                    <div className="inline-block rounded-xl border border-slate-200 bg-white shadow-md">
                       <DateRange
-                        editableDateInputs={true}
+                        editableDateInputs
                         onChange={(item) => setDateRange([item.selection])}
                         moveRangeOnFirstSelection={false}
                         ranges={dateRange}
@@ -333,130 +380,276 @@ export default function EOLAssessment({ user }) {
               </div>
             </div>
 
-            {/* Table */}
-            <div className="mt-4 bg-white rounded border overflow-auto max-h-[calc(100vh-280px)]">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-100 sticky top-0">
-                  <tr>
-                    <th className="px-6 py-3">Date</th>
-                    <th className="px-6 py-3">Candidate</th>
-                    <th className="px-6 py-3">Position</th>
-                    <th className="px-6 py-3">Attempt</th>
-                    <th className="px-6 py-3">Grammar</th>
-                    <th className="px-6 py-3">Reading</th>
-                    <th className="px-6 py-3">Sentence</th>
-                    <th className="px-6 py-3">English Score</th>
-                    <th className="px-6 py-3">Remarks</th>
-                    <th className="px-6 py-3">Email Etiquette</th>
-                    <th className="px-6 py-3">Email Remarks</th>
-                    <th className="px-6 py-3">Overall Rate</th>
-                    <th className="px-6 py-3">Overall Remarks</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRows.length > 0 ? (
-                    filteredRows.map((row, i) => (
-                      <tr
-                        key={i}
-                        className={`cursor-pointer transition-colors ${
-                          selectedRowIndex === i
-                            ? "bg-blue-50"
-                            : "hover:bg-slate-50"
-                        }`}
-                        onClick={() => {
-                          setSelectedRow(row);
-                          setSelectedRowIndex(i); // ✅ track row index
-                        }}
-                      >
-                        <td className="px-6 py-3">
-                          {row.assessment_date
-                            ? format(
-                                new Date(row.assessment_date),
-                                "MMM dd, yyyy",
-                              )
-                            : "—"}
-                        </td>
-                        <td className="px-6 py-3 font-semibold">
-                          {(row.candidatename || "—").toUpperCase()}
-                        </td>
-                        <td className="px-6 py-3">
-                          {row.applied_position_title || "—"}
-                        </td>
-                        <td className="px-6 py-3">{row.attempt_no || "—"}</td>
-                        <td className="px-6 py-3">
-                          {row.grammar_score != null
-                            ? `${(row.grammar_score * 100).toFixed(2)}%`
-                            : "—"}
-                        </td>
-                        <td className="px-6 py-3">
-                          {row.reading_score != null
-                            ? `${(row.reading_score * 100).toFixed(2)}%`
-                            : "—"}
-                        </td>
-                        <td className="px-6 py-3">
-                          {row.sentence_score != null
-                            ? `${(row.sentence_score * 100).toFixed(2)}%`
-                            : "—"}
-                        </td>
-                        <td className="px-6 py-3">
-                          {row.overall_score != null
-                            ? `${(row.overall_score * 100).toFixed(2)}%`
-                            : "—"}
-                        </td>
-                        <td className="px-6 py-3">{row.remarks || "—"}</td>
-                        <td className="px-6 py-3">
-                          {row.overall_email_score != null
-                            ? `${(row.overall_email_score * 100).toFixed(2)}%`
-                            : "—"}
-                        </td>
-                        <td className="px-6 py-3">
-                          {row.email_remarks || "—"}
-                        </td>
-                        <td className="px-6 py-3 font-bold">
-                          {row.overall_score != null &&
-                          row.overall_email_score != null
-                            ? `${(
-                                ((row.overall_score + row.overall_email_score) /
-                                  2) *
-                                100
-                              ).toFixed(2)}%`
-                            : "—"}
-                        </td>
-                        <td className="px-6 py-3 font-bold">
-                          {row.overall_score != null &&
-                          row.overall_email_score != null
-                            ? (row.overall_score + row.overall_email_score) /
-                                2 >=
-                              0.75
-                              ? "Passed"
-                              : "Failed"
-                            : "—"}
+            {fetchError && (
+              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {fetchError}
+              </div>
+            )}
+
+            <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-lg border bg-white shadow-sm">
+              <div className="h-full overflow-auto">
+                <table ref={tableRef} className="min-w-[1180px] w-full table-fixed text-[13px]">
+                  <thead className="sticky top-0 z-10 bg-slate-100 text-[10px] uppercase tracking-wide text-slate-600">
+                    <tr>
+                      <th style={{ width: "8%" }} className="px-3 py-2 text-left">
+                        Date
+                      </th>
+                      <th style={{ width: "13%" }} className="px-3 py-2 text-left">
+                        Candidate
+                      </th>
+                      <th style={{ width: "14%" }} className="px-3 py-2 text-left">
+                        Position
+                      </th>
+                      <th style={{ width: "6%" }} className="px-3 py-2 text-left">
+                        Attempt
+                      </th>
+                      <th style={{ width: "7%" }} className="px-3 py-2 text-left">
+                        Grammar
+                      </th>
+                      <th style={{ width: "7%" }} className="px-3 py-2 text-left">
+                        Reading
+                      </th>
+                      <th style={{ width: "7%" }} className="px-3 py-2 text-left">
+                        Sentence
+                      </th>
+                      <th style={{ width: "8%" }} className="px-3 py-2 text-left">
+                        English
+                      </th>
+                      <th style={{ width: "8%" }} className="px-3 py-2 text-left">
+                        Remarks
+                      </th>
+                      <th style={{ width: "8%" }} className="px-3 py-2 text-left">
+                        Email
+                      </th>
+                      <th style={{ width: "8%" }} className="px-3 py-2 text-left">
+                        Email Remarks
+                      </th>
+                      <th style={{ width: "7%" }} className="px-3 py-2 text-left">
+                        Overall
+                      </th>
+                      <th style={{ width: "7%" }} className="px-3 py-2 text-left">
+                        Result
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {isLoading ? (
+                      <tr>
+                        <td colSpan="13" className="py-6 text-center text-slate-400">
+                          Loading assessment data...
                         </td>
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td
-                        colSpan="11"
-                        className="text-center py-6 text-slate-400"
-                      >
-                        No results found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                    ) : safeFilteredRows.length > 0 ? (
+                      safeFilteredRows.map((row, i) => {
+                        const englishScore = safeNumber(row.overall_score);
+                        const emailScore = safeNumber(row.overall_email_score);
+
+                        const hasOverall =
+                          row.overall_score !== null &&
+                          row.overall_score !== undefined &&
+                          row.overall_email_score !== null &&
+                          row.overall_email_score !== undefined;
+
+                        const overallRate = hasOverall
+                          ? ((englishScore + emailScore) / 2) * 100
+                          : null;
+
+                        const overallPassed =
+                          hasOverall && (englishScore + emailScore) / 2 >= 0.75;
+
+                        return (
+                          <tr
+                            key={row.id || row.applicantid || i}
+                            className={`cursor-pointer border-b border-slate-100 transition-colors ${
+                              selectedRowIndex === i ? "bg-blue-50" : "hover:bg-slate-50"
+                            }`}
+                            onClick={() => {
+                              setSelectedRow(row);
+                              setSelectedRowIndex(i);
+                            }}
+                          >
+                            <td className="px-3 py-2 align-top">
+                              <div className="whitespace-nowrap">
+                                {formatDate(row.assessment_date)}
+                              </div>
+                            </td>
+
+                            <td className="px-3 py-2 align-top font-semibold">
+                              <div className="line-clamp-2">
+                                {(row.candidatename || "—").toUpperCase()}
+                              </div>
+                            </td>
+
+                            <td className="px-3 py-2 align-top">
+                              <div className="line-clamp-2">
+                                {row.applied_position_title || "—"}
+                              </div>
+                            </td>
+
+                            <td className="px-3 py-2 align-top">
+                              <div className="whitespace-nowrap">{row.attempt_no || "—"}</div>
+                            </td>
+
+                            <td className="px-3 py-2 align-top">
+                              <div className="whitespace-nowrap">
+                                {percentText(row.grammar_score)}
+                              </div>
+                            </td>
+
+                            <td className="px-3 py-2 align-top">
+                              <div className="whitespace-nowrap">
+                                {percentText(row.reading_score)}
+                              </div>
+                            </td>
+
+                            <td className="px-3 py-2 align-top">
+                              <div className="whitespace-nowrap">
+                                {percentText(row.sentence_score)}
+                              </div>
+                            </td>
+
+                            <td className="px-3 py-2 align-top">
+                              <div className="whitespace-nowrap">
+                                {percentText(row.overall_score)}
+                              </div>
+                            </td>
+
+                            <td className="px-3 py-2 align-top">
+                              <div className="line-clamp-2">{row.remarks || "—"}</div>
+                            </td>
+
+                            <td className="px-3 py-2 align-top">
+                              <div className="whitespace-nowrap">
+                                {percentText(row.overall_email_score)}
+                              </div>
+                            </td>
+
+                            <td className="px-3 py-2 align-top">
+                              <div className="line-clamp-2">{row.email_remarks || "—"}</div>
+                            </td>
+
+                            <td className="px-3 py-2 align-top font-bold">
+                              <div className="whitespace-nowrap">
+                                {overallRate !== null ? `${overallRate.toFixed(2)}%` : "—"}
+                              </div>
+                            </td>
+
+                            <td className="px-3 py-2 align-top font-bold">
+                              <div
+                                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] ${
+                                  hasOverall
+                                    ? overallPassed
+                                      ? "bg-green-100 text-green-700"
+                                      : "bg-red-100 text-red-700"
+                                    : "bg-slate-100 text-slate-500"
+                                }`}
+                              >
+                                {hasOverall ? (overallPassed ? "Passed" : "Failed") : "—"}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan="13" className="py-6 text-center text-slate-400">
+                          No results found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="hidden w-[300px] shrink-0 overflow-auto border-l bg-white p-5 shadow-xl 2xl:block">
+              {selectedRow ? (
+                <>
+                  <h2 className="mb-1 line-clamp-2 text-lg font-semibold">
+                    {selectedRow.candidatename?.toUpperCase() || "—"}
+                  </h2>
+
+                  <p className="mb-4 truncate text-xs uppercase text-slate-500">
+                    ID: {selectedRow.applicantid || "—"}
+                  </p>
+
+                  <div className="space-y-3">
+                    <PreviewItem label="Position" value={selectedRow.applied_position_title} />
+                    <PreviewItem label="Attempt No" value={selectedRow.attempt_no} />
+                    <PreviewItem
+                      label="Grammar Score"
+                      value={percentText(selectedRow.grammar_score)}
+                    />
+                    <PreviewItem
+                      label="Reading Score"
+                      value={percentText(selectedRow.reading_score)}
+                    />
+                    <PreviewItem
+                      label="Sentence Score"
+                      value={percentText(selectedRow.sentence_score)}
+                    />
+                    <PreviewItem
+                      label="English Score"
+                      value={percentText(selectedRow.overall_score)}
+                    />
+                    <PreviewItem label="Remarks" value={selectedRow.remarks} />
+                    <PreviewItem
+                      label="Email Etiquette"
+                      value={percentText(selectedRow.overall_email_score)}
+                    />
+                    <PreviewItem label="Email Remarks" value={selectedRow.email_remarks} />
+                    <PreviewItem label="Date" value={formatDate(selectedRow.assessment_date)} />
+                    <PreviewItem
+                      label="Overall Rate"
+                      value={
+                        selectedRow.overall_score !== null &&
+                        selectedRow.overall_score !== undefined &&
+                        selectedRow.overall_email_score !== null &&
+                        selectedRow.overall_email_score !== undefined
+                          ? `${(
+                              ((safeNumber(selectedRow.overall_score) +
+                                safeNumber(selectedRow.overall_email_score)) /
+                                2) *
+                              100
+                            ).toFixed(2)}%`
+                          : "—"
+                      }
+                    />
+                    <PreviewItem
+                      label="Overall Remarks"
+                      value={
+                        selectedRow.overall_score !== null &&
+                        selectedRow.overall_score !== undefined &&
+                        selectedRow.overall_email_score !== null &&
+                        selectedRow.overall_email_score !== undefined
+                          ? (safeNumber(selectedRow.overall_score) +
+                              safeNumber(selectedRow.overall_email_score)) /
+                              2 >=
+                            0.75
+                            ? "Passed"
+                            : "Failed"
+                          : "—"
+                      }
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm text-slate-400">
+                  Select a row to preview result
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Right Preview Panel */}
-          <div className="w-[350px] bg-white border-l shadow-xl p-6 overflow-auto">
+          <div className="w-[350px] overflow-auto border-l bg-white p-6 shadow-xl">
             {selectedRow ? (
               <>
-                <h2 className="text-lg font-semibold mb-1">
-                  {selectedRow.candidatename?.toUpperCase()}
+                <h2 className="mb-1 text-lg font-semibold">
+                  {selectedRow.candidatename?.toUpperCase() || "—"}
                 </h2>
-                <p className="text-xs text-slate-500 uppercase mb-4">
+
+                <p className="mb-4 text-xs uppercase text-slate-500">
                   ID: {selectedRow.applicantid || "—"}
                 </p>
 
@@ -465,32 +658,27 @@ export default function EOLAssessment({ user }) {
                     label="Position"
                     value={selectedRow.applied_position_title}
                   />
-                  <PreviewItem
-                    label="Attempt No"
-                    value={selectedRow.attempt_no}
-                  />
+                  <PreviewItem label="Attempt No" value={selectedRow.attempt_no} />
                   <PreviewItem
                     label="Grammar Score"
-                    value={`${(selectedRow.grammar_score * 100).toFixed(2)}%`}
+                    value={percentText(selectedRow.grammar_score)}
                   />
                   <PreviewItem
                     label="Reading Score"
-                    value={`${(selectedRow.reading_score * 100).toFixed(2)}%`}
+                    value={percentText(selectedRow.reading_score)}
                   />
                   <PreviewItem
                     label="Sentence Score"
-                    value={`${(selectedRow.sentence_score * 100).toFixed(2)}%`}
+                    value={percentText(selectedRow.sentence_score)}
                   />
                   <PreviewItem
                     label="English Score"
-                    value={`${(selectedRow.overall_score * 100).toFixed(2)}%`}
+                    value={percentText(selectedRow.overall_score)}
                   />
                   <PreviewItem label="Remarks" value={selectedRow.remarks} />
                   <PreviewItem
                     label="Email Etiquette"
-                    value={`${(selectedRow.overall_email_score * 100).toFixed(
-                      2,
-                    )}%`}
+                    value={percentText(selectedRow.overall_email_score)}
                   />
                   <PreviewItem
                     label="Email Remarks"
@@ -498,23 +686,18 @@ export default function EOLAssessment({ user }) {
                   />
                   <PreviewItem
                     label="Date"
-                    value={
-                      selectedRow.assessment_date
-                        ? format(
-                            new Date(selectedRow.assessment_date),
-                            "MMM dd, yyyy",
-                          )
-                        : "—"
-                    }
+                    value={formatDate(selectedRow.assessment_date)}
                   />
                   <PreviewItem
                     label="Overall Rate"
                     value={
-                      selectedRow.overall_score != null &&
-                      selectedRow.overall_email_score != null
+                      selectedRow.overall_score !== null &&
+                      selectedRow.overall_score !== undefined &&
+                      selectedRow.overall_email_score !== null &&
+                      selectedRow.overall_email_score !== undefined
                         ? `${(
-                            ((selectedRow.overall_score +
-                              selectedRow.overall_email_score) /
+                            ((safeNumber(selectedRow.overall_score) +
+                              safeNumber(selectedRow.overall_email_score)) /
                               2) *
                             100
                           ).toFixed(2)}%`
@@ -524,10 +707,12 @@ export default function EOLAssessment({ user }) {
                   <PreviewItem
                     label="Overall Remarks"
                     value={
-                      selectedRow.overall_score != null &&
-                      selectedRow.overall_email_score != null
-                        ? (selectedRow.overall_score +
-                            selectedRow.overall_email_score) /
+                      selectedRow.overall_score !== null &&
+                      selectedRow.overall_score !== undefined &&
+                      selectedRow.overall_email_score !== null &&
+                      selectedRow.overall_email_score !== undefined
+                        ? (safeNumber(selectedRow.overall_score) +
+                            safeNumber(selectedRow.overall_email_score)) /
                             2 >=
                           0.75
                           ? "Passed"
@@ -538,65 +723,23 @@ export default function EOLAssessment({ user }) {
                 </div>
               </>
             ) : (
-              <div className="h-full flex items-center justify-center text-slate-400 text-sm">
+              <div className="flex h-full items-center justify-center text-sm text-slate-400">
                 Select a row to preview result
               </div>
             )}
           </div>
         </div>
       </div>
-
-      {isLogoutModalVisible && (
-        <div
-          className="absolute inset-0 bg-black/30 z-50 flex items-center justify-center"
-          onClick={() => setIsLogoutModalVisible(false)}
-        >
-          <div
-            className="bg-white rounded-lg shadow-lg p-6 w-[300px] text-center"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-lg font-semibold mb-2">Confirm Logout</h2>
-            <p className="text-sm text-slate-600 mb-4">
-              Are you sure you want to log out?
-            </p>
-
-            <div className="flex justify-center gap-4">
-              <button
-                onClick={handleLogout}
-                className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition"
-              >
-                Logout
-              </button>
-              <button
-                onClick={() => setIsLogoutModalVisible(false)}
-                className="bg-slate-200 px-4 py-2 rounded-md hover:bg-slate-300 transition"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-/* Components */
 const AnalyticsCard = ({ label, value }) => (
-  <div
-    className="
-      bg-white border rounded-lg
-      px-3 py-2
-      shadow-sm
-      min-w-[120px]
-      h-[165px]  /* Fixed height to align with charts */
-      flex flex-col justify-center
-    "
-  >
-    <span className="text-[9px] uppercase text-slate-500 font-medium leading-none text-center">
+  <div className="flex h-[165px] min-w-[120px] flex-col justify-center rounded-lg border bg-white px-3 py-2 shadow-sm">
+    <span className="text-center text-[9px] font-medium uppercase leading-none text-slate-500">
       {label}
     </span>
-    <span className="text-[13px] font-semibold text-slate-800 leading-none text-center mt-1">
+    <span className="mt-1 text-center text-[13px] font-semibold leading-none text-slate-800">
       {value}
     </span>
   </div>
@@ -604,7 +747,7 @@ const AnalyticsCard = ({ label, value }) => (
 
 const PreviewItem = ({ label, value }) => (
   <div>
-    <p className="text-[11px] uppercase text-slate-500 font-semibold mb-1">
+    <p className="mb-1 text-[11px] font-semibold uppercase text-slate-500">
       {label}
     </p>
     <p className="text-sm text-slate-800">{value || "—"}</p>
@@ -616,7 +759,7 @@ const RadialChart = ({ value = 0, label = "Score" }) => {
     datasets: [
       {
         data: [value, 100 - value],
-        backgroundColor: ["#3B82F6", "#E5E7EB"], // Blue & Gray
+        backgroundColor: ["#3B82F6", "#E5E7EB"],
         borderWidth: 0,
       },
     ],
@@ -637,13 +780,12 @@ const RadialChart = ({ value = 0, label = "Score" }) => {
   };
 
   return (
-    <div className="relative w-32 h-32 mx-auto">
+    <div className="relative mx-auto h-32 w-32">
       <Doughnut data={data} options={options} />
 
-      {/* Center Label */}
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-blue-600 font-bold text-lg">
-          {value.toFixed(1)}%
+        <span className="text-lg font-bold text-blue-600">
+          {safeNumber(value).toFixed(1)}%
         </span>
       </div>
     </div>
@@ -652,19 +794,19 @@ const RadialChart = ({ value = 0, label = "Score" }) => {
 
 const StackedBarChart = ({ data }) => (
   <div className="w-full space-y-4">
-    {data.map((item, idx) => {
+    {(Array.isArray(data) ? data : []).map((item, idx) => {
       const total = item.passed + item.failed || 1;
       const passPercent = Math.round((item.passed / total) * 100);
       const failPercent = 100 - passPercent;
 
       return (
         <div key={idx}>
-          <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1">
+          <div className="mb-1 flex justify-between text-xs font-semibold text-slate-600">
             <span>{item.category}</span>
             <span>{passPercent}% Passed</span>
           </div>
 
-          <div className="h-4 w-full rounded-full overflow-hidden bg-slate-200 flex">
+          <div className="flex h-4 w-full overflow-hidden rounded-full bg-slate-200">
             <div
               className="bg-green-500 transition-all"
               style={{ width: `${passPercent}%` }}

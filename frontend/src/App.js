@@ -13,9 +13,7 @@ import "./App.css";
 import ProfilePage from "./components/common/ProfilePage";
 import UserService from "./components/service/UserService";
 import AccessDenied from "./components/common/AccessDenied";
-import Admin from "./components/Routes/Admin";
 import OauthLogin from "./components/authentication/OauthLogin";
-import Register from "./components/authentication/Register";
 import OtpVerification from "./components/authentication/OtpVerification";
 import JobPosting from "./components/Routes/JobPosting";
 import TypingTest from "./components/Routes/TypingTest";
@@ -114,7 +112,6 @@ function App() {
     const publicPaths = [
       "/",
       "/OauthLogin",
-      "/Register",
       "/OTP-SECURE",
       "/OtpVerification",
     ];

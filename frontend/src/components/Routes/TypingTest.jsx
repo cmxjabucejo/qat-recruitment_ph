@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useState, useEffect } from "react";
 import { DateRange } from "react-date-range";
 import { format } from "date-fns";
 import { enUS } from "date-fns/locale";
@@ -7,22 +6,33 @@ import { saveAs } from "file-saver";
 import * as XLSX from "xlsx";
 
 import searchIcon from "../../assets/search_symbol.png";
-import downloadIcon from "../../assets/download_icon.png";
-import SidebarIcons from "../../components/common/Sidebar"; // your modular icon-based sidebar
+import SidebarIcons from "../../components/common/Sidebar";
+import Header from "../../components/common/Header";
 import { SERVER_URL } from "../lib/constants";
-import Header from "../../components/common/Header"; // ✅ Import the new reusable Header
+import { apiFetch } from "../lib/apiFetch";
 
-import axios from "axios";
+import "react-date-range/dist/styles.css";
+import "react-date-range/dist/theme/default.css";
 
-export default function TypingTest({ user }) {
-  const navigate = useNavigate();
+const normalizeRows = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.result)) return payload.result;
+  if (Array.isArray(payload?.rows)) return payload.rows;
+  if (Array.isArray(payload?.[0])) return payload[0];
+  return [];
+};
+
+export default function TypingTest() {
   const [rows, setRows] = useState([]);
   const [filteredRows, setFilteredRows] = useState([]);
   const [selectedResult, setSelectedResult] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showCalendar, setShowCalendar] = useState(false);
+  const [selectedRowIndex, setSelectedRowIndex] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState("");
 
-  const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
   const [dateRange, setDateRange] = useState([
     {
       startDate: null,
@@ -31,31 +41,33 @@ export default function TypingTest({ user }) {
     },
   ]);
 
-  const [selectedRowIndex, setSelectedRowIndex] = useState(null);
-
-  const handleLogout = () => {
-    try {
-      localStorage.clear();
-      navigate("/OauthLogin");
-    } catch (error) {
-      console.error("Logout Error:", error);
-      alert("Logout failed. Please try again.");
-    }
-  };
-
-  // ✅ FIX: declare user info BEFORE JSX return
-  const userName = user.fullName || localStorage.getItem("name") || "User";
-  const userid = user.userid || localStorage.getItem("userid") || "";
-
   const fetchData = async () => {
+    setLoading(true);
+    setFetchError("");
+
     try {
-      const res = await axios.get(`${SERVER_URL}/assessments/typing-results`, {
-        withCredentials: true,
-      });
-      setRows(res.data);
-      setFilteredRows(res.data);
+      const res = await apiFetch(`${SERVER_URL}/assessments/typing-results`);
+
+      if (!res || !res.ok) {
+        throw new Error(`Server responded with ${res?.status || "error"}`);
+      }
+
+      const payload = await res.json();
+      const normalizedRows = normalizeRows(payload);
+
+      setRows(normalizedRows);
+      setFilteredRows(normalizedRows);
+      setSelectedResult(null);
+      setSelectedRowIndex(null);
     } catch (err) {
       console.error("Error fetching typing test data:", err);
+      setRows([]);
+      setFilteredRows([]);
+      setSelectedResult(null);
+      setSelectedRowIndex(null);
+      setFetchError(err?.message || "Unable to fetch typing test data.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -63,20 +75,26 @@ export default function TypingTest({ user }) {
     fetchData();
   }, []);
 
-  // Filtering logic
   useEffect(() => {
     const q = searchQuery.toLowerCase();
     const { startDate, endDate } = dateRange[0];
 
-    const filtered = rows.filter((r) => {
-      const matchesQuery = Object.values(r).some((val) =>
+    const safeRows = Array.isArray(rows) ? rows : [];
+
+    const filtered = safeRows.filter((r) => {
+      const matchesQuery = Object.values(r || {}).some((val) =>
         val?.toString().toLowerCase().includes(q),
       );
 
-      const createdDate = new Date(r.CREATED_AT);
+      const createdDate = r?.CREATED_AT ? new Date(r.CREATED_AT) : null;
+      const hasValidDate =
+        createdDate && !Number.isNaN(createdDate.getTime());
+
       const inRange =
-        (!startDate || createdDate >= startDate) &&
-        (!endDate || createdDate <= endDate);
+        !r?.CREATED_AT ||
+        !hasValidDate ||
+        ((!startDate || createdDate >= startDate) &&
+          (!endDate || createdDate <= endDate));
 
       return matchesQuery && inRange;
     });
@@ -86,7 +104,9 @@ export default function TypingTest({ user }) {
 
   const formatRangeLabel = () => {
     const { startDate, endDate } = dateRange[0];
+
     if (!startDate || !endDate) return "Select Date Range";
+
     return `${format(startDate, "MMM dd, yyyy")} - ${format(
       endDate,
       "MMM dd, yyyy",
@@ -94,31 +114,41 @@ export default function TypingTest({ user }) {
   };
 
   const handleExport = () => {
-    if (!rows.length) return;
+    const exportRows = Array.isArray(filteredRows) ? filteredRows : [];
 
-    const worksheet = XLSX.utils.json_to_sheet(rows);
+    if (!exportRows.length) {
+      alert("No data to export.");
+      return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
     const workbook = XLSX.utils.book_new();
+
     XLSX.utils.book_append_sheet(workbook, worksheet, "TypingResults");
 
     const excelBuffer = XLSX.write(workbook, {
       bookType: "xlsx",
       type: "array",
     });
-    const blob = new Blob([excelBuffer], { type: "application/octet-stream" });
+
+    const blob = new Blob([excelBuffer], {
+      type: "application/octet-stream",
+    });
 
     const fileName = `TypingTestResults_${
       new Date().toISOString().split("T")[0]
     }.xlsx`;
+
     saveAs(blob, fileName);
   };
 
-  // Calculate Analytics for Total Entries, Average Accuracy, Average Net speed
+  const safeFilteredRows = Array.isArray(filteredRows) ? filteredRows : [];
 
-  const totalEntries = filteredRows.length;
+  const totalEntries = safeFilteredRows.length;
 
   const averageAccuracy = totalEntries
     ? (
-        filteredRows.reduce(
+        safeFilteredRows.reduce(
           (sum, row) => sum + parseFloat(row.ACCURACY || 0),
           0,
         ) / totalEntries
@@ -127,25 +157,25 @@ export default function TypingTest({ user }) {
 
   const averageNetSpeed = totalEntries
     ? (
-        filteredRows.reduce(
+        safeFilteredRows.reduce(
           (sum, row) => sum + parseFloat(row.NET_SPEED || 0),
           0,
         ) / totalEntries
       ).toFixed(2)
     : "—";
 
-  // Top Net Speed
-  const topNetSpeedRow = filteredRows.reduce((max, row) => {
+  const topNetSpeedRow = safeFilteredRows.reduce((max, row) => {
     const speed = parseFloat(row.NET_SPEED || 0);
     return speed > parseFloat(max.NET_SPEED || 0) ? row : max;
   }, {});
 
   const topNetSpeed = topNetSpeedRow.NET_SPEED
-    ? `${topNetSpeedRow.NET_SPEED} WPM (${topNetSpeedRow.CANDIDATENAME || "—"})`
+    ? `${topNetSpeedRow.NET_SPEED} WPM (${
+        topNetSpeedRow.CANDIDATENAME || "—"
+      })`
     : "—";
 
-  // Top Accuracy
-  const topAccuracyRow = filteredRows.reduce((max, row) => {
+  const topAccuracyRow = safeFilteredRows.reduce((max, row) => {
     const accuracy = parseFloat(row.ACCURACY || 0);
     return accuracy > parseFloat(max.ACCURACY || 0) ? row : max;
   }, {});
@@ -157,25 +187,15 @@ export default function TypingTest({ user }) {
     : "—";
 
   return (
-    <div className="w-full min-h-screen bg-slate-50 flex text-slate-900">
-      {/* Sidebar */}
+    <div className="flex min-h-screen w-full bg-slate-50 text-slate-900">
       <SidebarIcons />
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col">
-        <Header
-          userName={userName}
-          userid={userid}
-          onLogoutClick={() => setIsLogoutModalVisible(true)}
-          pageTitle="Typing Test"
-        />
-
-        {/* Main Content Area (Filters + Table + Preview) */}
+      <div className="flex flex-1 flex-col">
+        <Header pageTitle="Typing Test" />
+        
         <div className="flex flex-1 flex-row overflow-hidden">
-          {/* Left side: Filters + Table */}
-          <div className="flex-1 flex flex-col px-6 pb-6">
-            {/* Analytics Cards */}
-            {/* <div className="flex flex-wrap gap-4 pt-6">
+          <div className="flex flex-1 flex-col px-6 pb-6">
+            <div className="flex flex-wrap gap-4 pt-6">
               <AnalyticsCard label="Total Entries" value={totalEntries} />
               <AnalyticsCard
                 label="Average Accuracy"
@@ -187,39 +207,38 @@ export default function TypingTest({ user }) {
               />
               <AnalyticsCard label="Top Net Speed" value={topNetSpeed} />
               <AnalyticsCard label="Top Accuracy" value={topAccuracy} />
-            </div> */}
+            </div>
 
-            {/* Filters Row */}
-            <div className="flex items-center gap-2 pt-4 mb-2">
-              {/* Search Field */}
+            <div className="mb-2 flex items-center gap-2 pt-4">
               <div className="relative w-[300px]">
                 <input
                   type="text"
                   placeholder="Search candidate, ID, etc."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-3 py-2.5 rounded-lg bg-slate-50 border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-blue-300"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-blue-300"
                 />
+
                 <img
                   src={searchIcon}
                   alt="Search"
-                  className="w-4 opacity-60 absolute left-3 top-1/2 -translate-y-1/2"
+                  className="absolute left-3 top-1/2 w-4 -translate-y-1/2 opacity-60"
                 />
               </div>
 
-              {/* Date Range Toggle Button & Clear Button */}
               <div className="relative inline-block">
-                {/* Toggle + Clear Buttons */}
                 <div className="flex items-center gap-3">
                   <button
+                    type="button"
                     onClick={() => setShowCalendar((prev) => !prev)}
-                    className="text-sm px-4 py-2 rounded-lg bg-slate-50 border border-slate-200 focus:ring-2 focus:ring-blue-300 outline-none"
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300"
                   >
                     {formatRangeLabel()}
                   </button>
 
                   {dateRange[0].startDate && dateRange[0].endDate && (
                     <button
+                      type="button"
                       onClick={() => {
                         setDateRange([
                           {
@@ -235,14 +254,21 @@ export default function TypingTest({ user }) {
                       Clear
                     </button>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={handleExport}
+                    className="rounded-lg border border-green-200 bg-green-100 px-4 py-2 text-sm font-semibold text-green-800 hover:bg-green-200"
+                  >
+                    Export
+                  </button>
                 </div>
 
-                {/* Date Picker - positioned to the right */}
                 {showCalendar && (
-                  <div className="absolute top-full left-full ml-2 z-50">
-                    <div className="bg-white border border-slate-200 shadow-md rounded-xl inline-block">
+                  <div className="absolute left-full top-full z-50 ml-2">
+                    <div className="inline-block rounded-xl border border-slate-200 bg-white shadow-md">
                       <DateRange
-                        editableDateInputs={true}
+                        editableDateInputs
                         onChange={(item) => setDateRange([item.selection])}
                         moveRangeOnFirstSelection={false}
                         ranges={dateRange}
@@ -255,10 +281,15 @@ export default function TypingTest({ user }) {
               </div>
             </div>
 
-            {/* Table */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-auto max-h-[calc(100vh-200px)] mt-2">
-              <table className="min-w-full text-sm text-left">
-                <thead className="bg-slate-100 text-slate-600 uppercase text-[11px] sticky top-0 shadow-sm">
+            {fetchError && (
+              <div className="mb-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {fetchError}
+              </div>
+            )}
+
+            <div className="mt-2 max-h-[calc(100vh-200px)] overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+              <table className="min-w-full text-left text-sm">
+                <thead className="sticky top-0 bg-slate-100 text-[11px] uppercase text-slate-600 shadow-sm">
                   <tr>
                     <th className="px-6 py-3">Date</th>
                     <th className="px-6 py-3">Applicant ID</th>
@@ -270,52 +301,69 @@ export default function TypingTest({ user }) {
                     <th className="px-6 py-3">Net Speed</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {filteredRows.map((row, idx) => (
-                    <tr
-                      key={idx}
-                      className={`cursor-pointer transition-colors ${
-                        selectedRowIndex === idx
-                          ? "bg-blue-50"
-                          : "hover:bg-slate-50"
-                      }`}
-                      onClick={() => {
-                        setSelectedRowIndex(idx);
-                        setSelectedResult(row); // optional: keep for preview
-                      }}
-                    >
-                      <td className="px-6 py-3">
-                        {row.CREATED_AT
-                          ? format(new Date(row.CREATED_AT), "MMM dd, yyyy")
-                          : "—"}
-                      </td>
-                      <td className="px-6 py-3 font-semibold">
-                        {row.APPLICANTID || "—"}
-                      </td>
-                      <td className="px-6 py-3">
-                        {(row.CANDIDATENAME || "—").toUpperCase()}
-                      </td>
-                      <td className="px-6 py-3">
-                        {row.POSITION_APPLIED || "—"}
-                      </td>
-                      <td className="px-6 py-3">{row.WPM || "—"}</td>
-                      <td className="px-6 py-3">{row.TYPOS || "—"}</td>
-                      <td className="px-6 py-3">
-                        {row.ACCURACY
-                          ? `${parseFloat(row.ACCURACY).toFixed(2)}%`
-                          : "—"}
-                      </td>
-                      <td className="px-6 py-3 font-semibold">
-                        {row.NET_SPEED || "—"} WPM
-                      </td>
-                    </tr>
-                  ))}
 
-                  {!filteredRows.length && (
+                <tbody>
+                  {loading ? (
                     <tr>
                       <td
                         colSpan="8"
-                        className="text-center text-slate-400 py-6"
+                        className="py-6 text-center text-slate-400"
+                      >
+                        Loading typing test data...
+                      </td>
+                    </tr>
+                  ) : safeFilteredRows.length > 0 ? (
+                    safeFilteredRows.map((row, idx) => (
+                      <tr
+                        key={row.id || row.APPLICANTID || idx}
+                        className={`cursor-pointer transition-colors ${
+                          selectedRowIndex === idx
+                            ? "bg-blue-50"
+                            : "hover:bg-slate-50"
+                        }`}
+                        onClick={() => {
+                          setSelectedRowIndex(idx);
+                          setSelectedResult(row);
+                        }}
+                      >
+                        <td className="px-6 py-3">
+                          {row.CREATED_AT
+                            ? format(new Date(row.CREATED_AT), "MMM dd, yyyy")
+                            : "—"}
+                        </td>
+
+                        <td className="px-6 py-3 font-semibold">
+                          {row.APPLICANTID || "—"}
+                        </td>
+
+                        <td className="px-6 py-3">
+                          {(row.CANDIDATENAME || "—").toUpperCase()}
+                        </td>
+
+                        <td className="px-6 py-3">
+                          {row.POSITION_APPLIED || "—"}
+                        </td>
+
+                        <td className="px-6 py-3">{row.WPM || "—"}</td>
+
+                        <td className="px-6 py-3">{row.TYPOS || "—"}</td>
+
+                        <td className="px-6 py-3">
+                          {row.ACCURACY
+                            ? `${parseFloat(row.ACCURACY).toFixed(2)}%`
+                            : "—"}
+                        </td>
+
+                        <td className="px-6 py-3 font-semibold">
+                          {row.NET_SPEED || "—"} WPM
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td
+                        colSpan="8"
+                        className="py-6 text-center text-slate-400"
                       >
                         No results found.
                       </td>
@@ -326,14 +374,14 @@ export default function TypingTest({ user }) {
             </div>
           </div>
 
-          {/* Preview Panel */}
-          <div className="w-[350px] bg-white border-l border-slate-200 shadow-xl p-6 overflow-auto">
+          <div className="w-[350px] overflow-auto border-l border-slate-200 bg-white p-6 shadow-xl">
             {selectedResult ? (
               <>
-                <h2 className="text-lg font-semibold mb-1">
+                <h2 className="mb-1 text-lg font-semibold">
                   {selectedResult.CANDIDATENAME?.toUpperCase() || "—"}
                 </h2>
-                <p className="text-xs text-slate-500 uppercase mb-4">
+
+                <p className="mb-4 text-xs uppercase text-slate-500">
                   ID: {selectedResult.APPLICANTID || "—"}
                 </p>
 
@@ -354,7 +402,11 @@ export default function TypingTest({ user }) {
                   />
                   <PreviewItem
                     label="Net Speed"
-                    value={`${selectedResult.NET_SPEED} WPM`}
+                    value={
+                      selectedResult.NET_SPEED
+                        ? `${selectedResult.NET_SPEED} WPM`
+                        : "—"
+                    }
                   />
                   <PreviewItem
                     label="Date"
@@ -369,62 +421,33 @@ export default function TypingTest({ user }) {
                 </div>
               </>
             ) : (
-              <div className="h-full flex items-center justify-center text-slate-400 text-sm">
+              <div className="flex h-full items-center justify-center text-sm text-slate-400">
                 Select a row to preview result
               </div>
             )}
           </div>
         </div>
       </div>
-      {isLogoutModalVisible && (
-        <div
-          className="absolute inset-0 bg-black/30 z-50 flex items-center justify-center"
-          onClick={() => setIsLogoutModalVisible(false)}
-        >
-          <div
-            className="bg-white rounded-lg shadow-lg p-6 w-[300px] text-center"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-lg font-semibold mb-2">Confirm Logout</h2>
-            <p className="text-sm text-slate-600 mb-4">
-              Are you sure you want to log out?
-            </p>
-
-            <div className="flex justify-center gap-4">
-              <button
-                onClick={handleLogout}
-                className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition"
-              >
-                Logout
-              </button>
-              <button
-                onClick={() => setIsLogoutModalVisible(false)}
-                className="bg-slate-200 px-4 py-2 rounded-md hover:bg-slate-300 transition"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 const PreviewItem = ({ label, value }) => (
   <div>
-    <p className="text-[11px] uppercase text-slate-500 font-semibold mb-1">
+    <p className="mb-1 text-[11px] font-semibold uppercase text-slate-500">
       {label}
     </p>
+
     <p className="text-sm text-slate-800">{value || "—"}</p>
   </div>
 );
 
 const AnalyticsCard = ({ label, value }) => (
-  <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-6 py-4 min-w-[180px]">
-    <p className="text-xs text-slate-500 uppercase font-semibold mb-1">
+  <div className="min-w-[180px] rounded-xl border border-slate-200 bg-white px-6 py-4 shadow-sm">
+    <p className="mb-1 text-xs font-semibold uppercase text-slate-500">
       {label}
     </p>
-    <p className="text-lg text-slate-800 font-bold">{value}</p>
+
+    <p className="text-lg font-bold text-slate-800">{value}</p>
   </div>
 );

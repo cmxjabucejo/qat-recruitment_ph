@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { SERVER_URL } from "../lib/constants";
-import bcrypt from "bcryptjs";
-import UserService from "../service/UserService";
 import { apiFetch } from "../lib/apiFetch";
 
 const OtpVerification = () => {

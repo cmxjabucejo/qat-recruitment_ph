@@ -2,37 +2,40 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { SERVER_URL } from "../lib/constants";
 import logo from "../../assets/cmxlogo-removebg-preview.png";
-import UserService from "../service/UserService";
 import { apiFetch } from "../lib/apiFetch";
+
+const AUTH_GENERIC_MESSAGE = "Invalid credentials or authentication request";
 
 const OauthLogin = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+
   const [error, setError] = useState("");
   const [email, setEmail] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [dots, setDots] = useState("");
+
+  const params = new URLSearchParams(location.search);
+
+  const redirectPath =
+    location.state?.from?.pathname || params.get("redirect") || "/tracker";
 
   const isCallmaxEmail = (value) => {
     const trimmed = (value || "").trim().toLowerCase();
     return trimmed.endsWith("@callmaxsolutions.com");
   };
 
-  const location = useLocation();
-  const params = new URLSearchParams(location.search);
-  // const redirectPath = params.get("redirect") || "/home";
-
-  const redirectPath =
-    location.state?.from?.pathname || params.get("redirect") || "/tracker";
-
   const handleManualOtpLogin = async () => {
     setError("");
 
-    if (!email) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
       setError("Please enter your email address.");
       return;
     }
 
-    if (!isCallmaxEmail(email)) {
+    if (!isCallmaxEmail(normalizedEmail)) {
       setError("Please use your Callmax email address.");
       return;
     }
@@ -40,78 +43,76 @@ const OauthLogin = () => {
     setIsSending(true);
 
     try {
-      // ===============================
-      // 1️⃣ CHECK EMAIL
-      // ===============================
+      /*
+      ========================================
+      1. CHECK EMAIL
+      ========================================
+      Security hardening:
+      The backend now returns a generic response and does NOT return user data.
+      Do not check checkData.user, userStatus, or userLevel here.
+      */
       const checkRes = await apiFetch(`${SERVER_URL}/auth/check-email`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: normalizedEmail }),
       });
 
-      const checkData = await checkRes.json();
+      const checkData = await checkRes.json().catch(() => ({}));
 
       if (!checkRes.ok || !checkData.success) {
-        setError(checkData.error || "Email is not authorized.");
+        setError(checkData.message || AUTH_GENERIC_MESSAGE);
         return;
       }
 
-      const user = checkData.user;
-
-      if (user.userStatus?.toLowerCase() !== "active") {
-        setError("This account is not active.");
-        return;
-      }
-
-      // optional (UI only)
-      UserService.setPendingUser(user);
-
-      // ===============================
-      // 2️⃣ SEND OTP (SECURE)
-      // ===============================
+      /*
+      ========================================
+      2. SEND OTP
+      ========================================
+      For invalid/inactive users, backend returns the same generic shape.
+      The frontend should not reveal whether the email exists.
+      */
       const otpRes = await apiFetch(`${SERVER_URL}/auth/send-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emailAddress: email }),
+        body: JSON.stringify({ emailAddress: normalizedEmail }),
       });
 
       if (!otpRes) return;
 
-      // 🔥 HANDLE RATE LIMIT FIRST
+      const otpData = await otpRes.json().catch(() => ({}));
+
       if (otpRes.status === 429) {
-        const result = await otpRes.json();
-        setError(result.message || "Too many requests. Please wait.");
+        setError(otpData.message || "Too many requests. Please wait.");
         return;
       }
 
-      const result = await otpRes.json();
-
-      if (!otpRes.ok || !result.success) {
-        setError(result.message || "Failed to send OTP.");
+      if (!otpRes.ok || !otpData.success || !otpData.challengeId) {
+        setError(otpData.message || AUTH_GENERIC_MESSAGE);
         return;
       }
 
-      // ===============================
-      // ✅ STORE SECURE DATA
-      // ===============================
-      localStorage.setItem("pendingChallengeId", result.challengeId);
-      localStorage.setItem("pendingEmail", email);
-      localStorage.setItem("pendingExpiryAt", result.expiresAt);
-      localStorage.setItem("otpCooldownStart", Date.now());
+      /*
+      ========================================
+      3. STORE OTP SESSION
+      ========================================
+      */
+      localStorage.setItem("pendingChallengeId", otpData.challengeId);
+      localStorage.setItem("pendingEmail", normalizedEmail);
+      localStorage.setItem("pendingExpiryAt", otpData.expiresAt);
+      localStorage.setItem("otpCooldownStart", Date.now().toString());
 
-      // ===============================
-      // 3️⃣ GO TO OTP PAGE
-      // ===============================
-      navigate(
-        `/OtpVerification?redirect=${encodeURIComponent(redirectPath)}`,
-        {
-          state: {
-            emailAddress: email,
-            flow: "login",
-            redirectPath,
-          },
+      /*
+      ========================================
+      4. GO TO OTP PAGE
+      ========================================
+      */
+      navigate(`/OtpVerification?redirect=${encodeURIComponent(redirectPath)}`, {
+        state: {
+          emailAddress: normalizedEmail,
+          flow: "login",
+          redirectPath,
         },
-      );
+      });
     } catch (err) {
       console.error("OTP login error:", err);
       setError("An error occurred. Please try again.");
@@ -137,16 +138,19 @@ const OauthLogin = () => {
   }, [isSending]);
 
   return (
-    <div className="flex justify-center items-center min-h-screen bg-toolbar-gradient  px-4">
+    <div className="flex justify-center items-center min-h-screen bg-toolbar-gradient px-4">
       <div className="bg-white p-8 md:p-10 rounded-lg shadow-xl w-full max-w-lg text-center">
         <img src={logo} alt="Callmax Logo" className="w-32 mx-auto mb-6" />
+
         <h2 className="text-xl font-semibold text-gray-800 mb-4 text-center">
           RECRUITMENT PORTAL
         </h2>
+
         <span className="text-m text-gray-700">v10.10.7</span>
 
-        <div className="mb-6 text-left">
+        <div className="mb-6 text-left mt-4">
           <label className="text-sm text-gray-700 mb-1 block">Email</label>
+
           <input
             type="email"
             placeholder="Enter your registered email"
@@ -154,19 +158,20 @@ const OauthLogin = () => {
             onChange={(e) => setEmail(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
-                e.preventDefault(); // prevents accidental form submit / refresh
-                handleManualOtpLogin();
+                e.preventDefault();
+                if (!isSending) handleManualOtpLogin();
               }
             }}
-            className="w-full border rounded px-3 py-2 mb-3"
+            disabled={isSending}
+            className="w-full border rounded px-3 py-2 mb-3 disabled:bg-gray-100 disabled:cursor-not-allowed"
           />
 
           <button
             onClick={handleManualOtpLogin}
             disabled={isSending}
-            className="w-full bg-[#162950] hover:bg-[#1c365f] text-white py-2 rounded"
+            className="w-full bg-[#162950] hover:bg-[#1c365f] text-white py-2 rounded disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {isSending ? "Sending OTP..." : "Login with OTP"}
+            {isSending ? `Sending OTP${dots}` : "Login with OTP"}
           </button>
         </div>
 
