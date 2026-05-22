@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 
+
 const authToken = (req, res, next) => {
   // Let CORS preflight through
   if (req.method === "OPTIONS") return next();

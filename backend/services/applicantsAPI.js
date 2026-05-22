@@ -1,533 +1,731 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../config/dbconfig");
-const { requireAuth } = require("../middleware/authMiddleware");
+const { requireAuth, requireRole } = require("../middleware/authMiddleware");
 const { upload, s3 } = require("../utils/helpers");
 const BUCKET_NAME = process.env.BUCKET_NAME;
 const fs = require("fs");
 
-router.get("/applicants-list", requireAuth, async (req, res) => {
-  // Prevent caching
+/*
+========================================
+ACCESS CONTROL
+========================================
+*/
+const RECRUITMENT_ROLES = ["Admin", "Super Admin", "Recruiter"];
+
+/*
+========================================
+HELPERS
+========================================
+*/
+function noCache(res) {
   res.set(
     "Cache-Control",
     "no-store, no-cache, must-revalidate, proxy-revalidate",
   );
   res.set("Pragma", "no-cache");
   res.set("Expires", "0");
+}
 
-  console.log("🚨 applicantsList endpoint HIT. Query:", req.query);
+function safeString(value, maxLength = 255) {
+  if (value === undefined || value === null) return "";
+  return String(value).trim().slice(0, maxLength);
+}
 
-  try {
-    const [result] = await db.query(`
-      SELECT a.*
-      FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database a
-      JOIN (
-        SELECT MAX(ID) AS max_id
-        FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
-        GROUP BY applicationid
-      ) latest_applicant
-        ON a.ID = latest_applicant.max_id
-      ORDER BY a.ID DESC
-    `);
+function safeNullableString(value, maxLength = 255) {
+  const cleaned = safeString(value, maxLength);
+  return cleaned || null;
+}
 
-    console.log(`✅ Fetched from MySQL | Rows fetched: ${result.length}`);
+function safeLongText(value) {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+}
 
-    // Optionally nullify resume URL or other fields if needed
-    const updatedResult = result.map((row) => ({
-      ...row,
-      resumeUrl: null, // Keep if needed
-    }));
+function safeFileName(value) {
+  return String(value || "file")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 180);
+}
 
-    return res.json({ source: "mysql", data: updatedResult });
-  } catch (error) {
-    console.error("❌ Error fetching applicant data:", error);
-    return res.status(500).json({ error: "Database error" });
+function normalizeDate(date) {
+  if (!date || String(date).trim() === "") return null;
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) return null;
+
+  return parsedDate.toISOString().split("T")[0];
+}
+
+function buildCandidateName(data) {
+  const title = safeString(data.nameTitle, 20);
+  const suffix = safeString(data.nameSuffix, 20);
+  const firstName = safeString(data.firstName, 100);
+  const middleName = safeString(data.middleName, 100);
+  const lastName = safeString(data.lastName, 100);
+
+  const isDoctor = (title === "MD" || title === "DMD") && title !== "N/A";
+
+  return `${isDoctor ? "Dr. " : ""}${lastName}, ${firstName} ${
+    middleName || ""
+  }${suffix && suffix !== "N/A" ? ` ${suffix}` : ""}${
+    isDoctor ? `, ${title}` : ""
+  }`.trim();
+}
+
+function setAccountCodeByDepartment(data) {
+  const departmentMap = {
+    Accounting: "CMX-ACC-01",
+    DREAM: "CMX-DRM-08",
+    Facilities: "CMX-FAC-02",
+    GSD: "CMX-GSD-03",
+    HRAD: "CMX-HRD-04",
+    IT: "CMX-ITD-05",
+    "Ops Support": "CMX-OPS-07",
+    Recruitment: "CMX-REC-06",
+  };
+
+  return departmentMap[data.department] || data.accountCode || null;
+}
+
+async function uploadResumeToS3(file, applicationId) {
+  if (!file) return null;
+
+  if (!BUCKET_NAME) {
+    throw new Error("BUCKET_NAME is not configured");
   }
-});
 
-router.get("/successful-hires-per-recruiter", requireAuth, async (req, res) => {
-  console.log("🔥 HIT /api/successfulHiresPerRecruiter");
+  const uniqueFilename = `${safeString(applicationId, 100)}-${safeFileName(
+    file.originalname,
+  )}`;
+
+  const s3Params = {
+    Bucket: BUCKET_NAME,
+    Key: `resumes/${uniqueFilename}`,
+    Body: fs.createReadStream(file.path),
+    ContentType: file.mimetype,
+    ACL: "private",
+  };
+
+  await s3.upload(s3Params).promise();
 
   try {
-    const [result] = await db.query(`
-      SELECT 
-        a.recruiter,
-        COUNT(*) AS total_applications,
-        SUM(a.overall_status = 'Successful Hire') AS successful_hires
-      FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database a
-      JOIN (
-        SELECT MAX(ID) AS max_id
-        FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
-        GROUP BY applicationid
-      ) latest_applicant
-        ON a.ID = latest_applicant.max_id
-      WHERE 
-        a.recruiter IS NOT NULL
-        AND TRIM(a.recruiter) <> ''
-        AND LOWER(a.recruiter) <> 'unknown'
-        AND LOWER(a.recruiter) <> 'null'
-      GROUP BY a.recruiter
-      ORDER BY successful_hires DESC;
-    `);
-
-    return res.json({ data: result });
-  } catch (error) {
-    console.error("❌ Error fetching successful hires per recruiter:", error);
-    return res.status(500).json({ error: "Database error" });
+    fs.unlinkSync(file.path);
+  } catch (unlinkErr) {
+    console.warn("⚠️ Could not remove local uploaded file:", unlinkErr.message);
   }
-});
 
-router.get("/successful-hires-per-source", requireAuth, async (req, res) => {
-  try {
-    const [result] = await db.query(`
-      SELECT 
-        a.candidatesource,
-        COUNT(*) AS total_applications,
-        SUM(a.overall_status = 'Successful Hire') AS successful_hires
-      FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database a
-      JOIN (
-        SELECT MAX(ID) AS max_id
-        FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
-        GROUP BY applicationid
-      ) latest_applicant
-        ON a.ID = latest_applicant.max_id
-      WHERE a.candidatesource IS NOT NULL
-        AND a.candidatesource <> ''
-      GROUP BY a.candidatesource
-      ORDER BY successful_hires DESC;
-    `);
+  return uniqueFilename;
+}
 
-    return res.json({ data: result });
-  } catch (error) {
-    console.error("❌ Error fetching hires per source:", error);
-    return res.status(500).json({ error: "Database error" });
-  }
-});
-
-router.get("/recruitment-tracker", requireAuth, async (req, res) => {
-  console.log("📥 /api/recruitment_tracker HIT");
-
-  try {
-    const [rows] = await db.query(`
-       SELECT a.*
-      FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database a
-      INNER JOIN (
-        SELECT applicationid, MAX(id) AS max_id
-        FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
-        GROUP BY applicationid
-      ) latest
-        ON a.id = latest.max_id
-      ORDER BY a.id DESC
-    `);
-
-    console.log(`✅ Fetched ${rows.length} rows from recruitment tracker`);
-    res.json(rows);
-  } catch (err) {
-    console.error("❌ Error fetching recruitment tracker data:", err);
-    res.status(500).json({ error: "Database error" });
-  }
-});
-
-router.get("/getcandidate/:applicationid", requireAuth, async (req, res) => {
-  const { applicationid } = req.params;
-
-  const query = `
-    SELECT *
-    FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
-    WHERE applicationid = ?
-    LIMIT 1;
-  `;
-
-  try {
-    const [rows] = await db.query(query, [applicationid]);
-
-    if (rows.length === 0) {
-      return res.status(404).json({ error: "Candidate not found" });
+function cleanupUploadedFile(req) {
+  if (req.file?.path) {
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch {
+      // ignore cleanup failure
     }
-
-    res.json(rows[0]); // return the first (and only) candidate
-  } catch (error) {
-    console.error("Error fetching candidate:", error);
-    res.status(500).json({ error: "Database error while fetching candidate" });
   }
-});
+}
 
-router.get("/recruiters-list", requireAuth, async (req, res) => {
-  try {
-    // Replace with your database query
-    const recruiters = await db.query(
-      "SELECT * FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_recruiters",
-    );
-    res.status(200).json(recruiters);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Error fetching recruiters" });
-  }
-});
-
-router.post(
-  "/addapplicants",
-  upload.single("resume"),
+/*
+========================================
+APPLICANTS LIST
+========================================
+*/
+router.get(
+  "/applicants-list",
   requireAuth,
+  requireRole(...RECRUITMENT_ROLES),
+  async (req, res) => {
+    noCache(res);
+
+    try {
+      const [result] = await db.query(`
+        SELECT a.*
+        FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database a
+        JOIN (
+          SELECT MAX(ID) AS max_id
+          FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
+          GROUP BY applicationid
+        ) latest_applicant
+          ON a.ID = latest_applicant.max_id
+        ORDER BY a.ID DESC
+      `);
+
+      const updatedResult = result.map((row) => ({
+        ...row,
+        resumeUrl: null,
+      }));
+
+      return res.status(200).json({
+        success: true,
+        source: "mysql",
+        data: updatedResult,
+      });
+    } catch (error) {
+      console.error("❌ Error fetching applicant data:", error);
+
+      return res.status(500).json({
+        success: false,
+        error: "Database error",
+      });
+    }
+  },
+);
+
+/*
+========================================
+SUCCESSFUL HIRES PER RECRUITER
+========================================
+*/
+router.get(
+  "/successful-hires-per-recruiter",
+  requireAuth,
+  requireRole(...RECRUITMENT_ROLES),
   async (req, res) => {
     try {
-      // Fetch the maximum ID from the database
-      const [maxIdRow] = await db.query(
-        "SELECT MAX(ID) as maxId FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database",
-      );
-      const maxId = maxIdRow[0].maxId || 0;
+      const [result] = await db.query(`
+        SELECT 
+          a.recruiter,
+          COUNT(*) AS total_applications,
+          SUM(a.overall_status = 'Successful Hire') AS successful_hires
+        FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database a
+        JOIN (
+          SELECT MAX(ID) AS max_id
+          FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
+          GROUP BY applicationid
+        ) latest_applicant
+          ON a.ID = latest_applicant.max_id
+        WHERE 
+          a.recruiter IS NOT NULL
+          AND TRIM(a.recruiter) <> ''
+          AND LOWER(a.recruiter) <> 'unknown'
+          AND LOWER(a.recruiter) <> 'null'
+        GROUP BY a.recruiter
+        ORDER BY successful_hires DESC
+      `);
 
+      return res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      console.error("❌ Error fetching successful hires per recruiter:", error);
+
+      return res.status(500).json({
+        success: false,
+        error: "Database error",
+      });
+    }
+  },
+);
+
+/*
+========================================
+SUCCESSFUL HIRES PER SOURCE
+========================================
+*/
+router.get(
+  "/successful-hires-per-source",
+  requireAuth,
+  requireRole(...RECRUITMENT_ROLES),
+  async (req, res) => {
+    try {
+      const [result] = await db.query(`
+        SELECT 
+          a.candidatesource,
+          COUNT(*) AS total_applications,
+          SUM(a.overall_status = 'Successful Hire') AS successful_hires
+        FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database a
+        JOIN (
+          SELECT MAX(ID) AS max_id
+          FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
+          GROUP BY applicationid
+        ) latest_applicant
+          ON a.ID = latest_applicant.max_id
+        WHERE a.candidatesource IS NOT NULL
+          AND a.candidatesource <> ''
+        GROUP BY a.candidatesource
+        ORDER BY successful_hires DESC
+      `);
+
+      return res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      console.error("❌ Error fetching hires per source:", error);
+
+      return res.status(500).json({
+        success: false,
+        error: "Database error",
+      });
+    }
+  },
+);
+
+/*
+========================================
+RECRUITMENT TRACKER
+========================================
+*/
+router.get(
+  "/recruitment-tracker",
+  requireAuth,
+  requireRole(...RECRUITMENT_ROLES),
+  async (req, res) => {
+    try {
+      const [rows] = await db.query(`
+        SELECT a.*
+        FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database a
+        INNER JOIN (
+          SELECT applicationid, MAX(id) AS max_id
+          FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
+          GROUP BY applicationid
+        ) latest
+          ON a.id = latest.max_id
+        ORDER BY a.id DESC
+      `);
+
+      return res.status(200).json({
+        success: true,
+        data: rows,
+      });
+    } catch (err) {
+      console.error("❌ Error fetching recruitment tracker data:", err);
+
+      return res.status(500).json({
+        success: false,
+        error: "Database error",
+      });
+    }
+  },
+);
+
+/*
+========================================
+GET CANDIDATE
+========================================
+*/
+router.get(
+  "/getcandidate/:applicationid",
+  requireAuth,
+  requireRole(...RECRUITMENT_ROLES),
+  async (req, res) => {
+    const applicationid = safeString(req.params.applicationid, 100);
+
+    if (!applicationid) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid candidate request.",
+      });
+    }
+
+    try {
+      const [rows] = await db.query(
+        `
+        SELECT *
+        FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
+        WHERE applicationid = ?
+        LIMIT 1
+        `,
+        [applicationid],
+      );
+
+      if (!rows.length) {
+        return res.status(404).json({
+          success: false,
+          error: "Candidate not found",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        data: rows[0],
+      });
+    } catch (error) {
+      console.error("❌ Error fetching candidate:", error);
+
+      return res.status(500).json({
+        success: false,
+        error: "Database error",
+      });
+    }
+  },
+);
+
+/*
+========================================
+RECRUITERS LIST
+========================================
+*/
+router.get(
+  "/recruiters-list",
+  requireAuth,
+  requireRole(...RECRUITMENT_ROLES),
+  async (req, res) => {
+    try {
+      const [recruiters] = await db.query(`
+        SELECT *
+        FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_recruiters
+      `);
+
+      return res.status(200).json({
+        success: true,
+        data: recruiters,
+      });
+    } catch (error) {
+      console.error("❌ Error fetching recruiters:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Error fetching recruiters",
+      });
+    }
+  },
+);
+
+/*
+========================================
+ADD APPLICANT
+========================================
+Internal only.
+Public application submission is handled by quickapply.cmxph.com.
+Important: requireAuth must run before upload.single().
+========================================
+*/
+router.post(
+  "/addapplicants",
+  requireAuth,
+  requireRole(...RECRUITMENT_ROLES),
+  upload.single("resume"),
+  async (req, res) => {
+    try {
       const data = req.body;
 
-      // Generate applicationId
+      const [maxIdRow] = await db.query(`
+        SELECT MAX(ID) as maxId
+        FROM 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
+      `);
+
+      const maxId = maxIdRow[0].maxId || 0;
+
       const currentDate = new Date();
       const yearMonth = `${String(currentDate.getFullYear()).slice(2)}${String(
         currentDate.getMonth() + 1,
       ).padStart(2, "0")}`;
+
       const roleAbbreviation = data.applied_role
-        ? data.applied_role.slice(0, 2).toUpperCase()
+        ? safeString(data.applied_role, 100).slice(0, 2).toUpperCase()
         : "XX";
+
       const nextId = (maxId + 1).toString().padStart(4, "0");
       const applicationId = `CMX-${yearMonth}${roleAbbreviation}-${nextId}`;
 
-      // Generate applicationdatetime in MySQL format
       const applicationDatetime = currentDate
         .toISOString()
         .slice(0, 19)
         .replace("T", " ");
 
-      // Upload the file to S3
-      let resumeFilename = null;
-      if (req.file) {
-        const file = req.file;
-        const uniqueFilename = `${applicationId}-${file.originalname}`; // Create a unique filename
+      const resumeFilename = await uploadResumeToS3(req.file, applicationId);
 
-        const s3Params = {
-          Bucket: BUCKET_NAME,
-          Key: `resumes/${uniqueFilename}`, // Unique file name in the bucket
-          Body: fs.createReadStream(file.path),
-          ContentType: file.mimetype,
-          ACL: "private", // Keep the file private
-        };
+      const candidateName = buildCandidateName(data);
 
-        await s3.upload(s3Params).promise();
-        resumeFilename = uniqueFilename; // Save only the filename in the database
-
-        // Remove the local file after upload
-        fs.unlinkSync(file.path);
-      }
-
-      // Construct the fullName
-      const candidateName = `${
-        (data.nameTitle === "MD" || data.nameTitle === "DMD") &&
-        data.nameTitle !== "N/A"
-          ? "Dr. "
-          : ""
-      }${data.lastName}, ${data.firstName} ${data.middleName || ""}${
-        data.nameSuffix && data.nameSuffix !== "N/A"
-          ? " " + data.nameSuffix
-          : ""
-      }${
-        (data.nameTitle === "MD" || data.nameTitle === "DMD") &&
-        data.nameTitle !== "N/A"
-          ? ", " + data.nameTitle
-          : ""
-      }`;
-
-      // Insert data into the database
       const query = `
-  INSERT INTO 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database (
-    applicationid, 
-    applicationdatetime, 
-    candidatename, 
-    gender,
-    candidatephone1, 
-    candidatephone2, 
-    candidateemail1,
-    candidateemail2, 
-    candidatesource, 
-    candidatetype, 
-    candidatecvattachment, 
-    applied_role, 
-    applied_position_title,
-    department,
-    profiled_role, 
-    referral_code,
-    date_updated,
-    overall_status,
-    applicationencodeddatetime
-  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
-`;
+        INSERT INTO 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database (
+          applicationid, 
+          applicationdatetime, 
+          candidatename, 
+          gender,
+          candidatephone1, 
+          candidatephone2, 
+          candidateemail1,
+          candidateemail2, 
+          candidatesource, 
+          candidatetype, 
+          candidatecvattachment, 
+          applied_role, 
+          applied_position_title,
+          department,
+          profiled_role, 
+          referral_code,
+          date_updated,
+          overall_status,
+          applicationencodeddatetime
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `;
 
       const values = [
         applicationId,
         applicationDatetime,
         candidateName,
-        data.gender,
-        data.candidatephone1,
-        data.candidatephone2,
-        data.candidateemail1,
-        data.candidateemail2,
-        data.candidatesource,
-        data.candidatetype,
+        safeNullableString(data.gender, 50),
+        safeNullableString(data.candidatephone1, 50),
+        safeNullableString(data.candidatephone2, 50),
+        safeNullableString(data.candidateemail1, 255),
+        safeNullableString(data.candidateemail2, 255),
+        safeNullableString(data.candidatesource, 255),
+        safeNullableString(data.candidatetype, 255),
         resumeFilename,
-        data.applied_role,
-        data.applied_position_title,
-        data.department,
-        data.profiled_role,
-        data.referral_code || "",
+        safeNullableString(data.applied_role, 255),
+        safeNullableString(data.applied_position_title, 255),
+        safeNullableString(data.department, 255),
+        safeNullableString(data.profiled_role, 255),
+        safeString(data.referral_code, 100),
         applicationDatetime,
-        data.overallStatus || "Active Application",
+        safeNullableString(data.overallStatus, 100) || "Active Application",
         applicationDatetime,
       ];
 
       await db.query(query, values);
 
-      res.status(200).json({
+      return res.status(201).json({
         success: true,
         applicationId,
       });
     } catch (error) {
-      console.error("Error handling applicant data:", error);
-      res.status(500).json({ error: "Database error" });
+      cleanupUploadedFile(req);
+      console.error("❌ Error handling applicant data:", error);
+
+      return res.status(500).json({
+        success: false,
+        error: "Database error",
+      });
     }
   },
 );
 
+/*
+========================================
+EDIT APPLICANT BASIC INFO
+========================================
+Important: requireAuth must run before upload.single().
+========================================
+*/
 router.put(
   "/editapplicant",
-  upload.single("resume"),
   requireAuth,
+  requireRole(...RECRUITMENT_ROLES),
+  upload.single("resume"),
   async (req, res) => {
-    const data = req.body;
-
-    const normalizeText = (v) => (v === undefined ? "" : v);
-
-    let resumeFilename = data.candidatecvattachment || null;
-
-    if (req.file) {
-      // Upload resume file to S3
-      const uniqueFilename = `${data.applicationid}-${req.file.originalname}`;
-      const s3Params = {
-        Bucket: BUCKET_NAME,
-        Key: `resumes/${uniqueFilename}`,
-        Body: fs.createReadStream(req.file.path),
-        ContentType: req.file.mimetype,
-        ACL: "private",
-      };
-
-      try {
-        await s3.upload(s3Params).promise();
-        resumeFilename = uniqueFilename;
-        fs.unlinkSync(req.file.path);
-      } catch (error) {
-        console.error("Error uploading resume to S3:", error);
-        return res.status(500).json({ error: "Failed to upload resume" });
-      }
-    }
-
-    const query = `
-    UPDATE 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
-    SET 
-      candidatename = ?, 
-      gender = ?, 
-      candidatephone1 = ?, 
-      candidatephone2 = ?, 
-      candidateemail1 = ?, 
-      candidateemail2 = ?, 
-      candidatesource = ?, 
-      candidatetype = ?, 
-      candidatecvattachment = ?, 
-      applied_role = ?, 
-      applied_position_title = ?, 
-      remarks = ?, 
-      recruiter = ?, 
-      referral_code = ?
-    WHERE applicationid = ?;
-  `;
-
-    const values = [
-      normalizeText(data.candidatename),
-      normalizeText(data.gender),
-      normalizeText(data.candidatephone1),
-      normalizeText(data.candidatephone2),
-      normalizeText(data.candidateemail1),
-      normalizeText(data.candidateemail2),
-      normalizeText(data.candidatesource),
-      normalizeText(data.candidatetype),
-      resumeFilename,
-      normalizeText(data.applied_role),
-      normalizeText(data.applied_position_title),
-      normalizeText(data.remarks),
-      normalizeText(data.recruiter),
-      normalizeText(data.referral_code),
-      data.applicationid, // 👈 unique key
-    ];
-
     try {
-      await db.query(query, values);
+      const data = req.body;
+      const applicationid = safeString(data.applicationid, 100);
 
-      res.status(200).json({ success: true });
+      if (!applicationid) {
+        cleanupUploadedFile(req);
+
+        return res.status(400).json({
+          success: false,
+          error: "Invalid applicant request.",
+        });
+      }
+
+      let resumeFilename = safeNullableString(data.candidatecvattachment, 255);
+
+      if (req.file) {
+        resumeFilename = await uploadResumeToS3(req.file, applicationid);
+      }
+
+      const query = `
+        UPDATE 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
+        SET 
+          candidatename = ?, 
+          gender = ?, 
+          candidatephone1 = ?, 
+          candidatephone2 = ?, 
+          candidateemail1 = ?, 
+          candidateemail2 = ?, 
+          candidatesource = ?, 
+          candidatetype = ?, 
+          candidatecvattachment = ?, 
+          applied_role = ?, 
+          applied_position_title = ?, 
+          remarks = ?, 
+          recruiter = ?, 
+          referral_code = ?
+        WHERE applicationid = ?
+      `;
+
+      const values = [
+        safeNullableString(data.candidatename, 255),
+        safeNullableString(data.gender, 50),
+        safeNullableString(data.candidatephone1, 50),
+        safeNullableString(data.candidatephone2, 50),
+        safeNullableString(data.candidateemail1, 255),
+        safeNullableString(data.candidateemail2, 255),
+        safeNullableString(data.candidatesource, 255),
+        safeNullableString(data.candidatetype, 255),
+        resumeFilename,
+        safeNullableString(data.applied_role, 255),
+        safeNullableString(data.applied_position_title, 255),
+        safeLongText(data.remarks),
+        safeNullableString(data.recruiter, 255),
+        safeNullableString(data.referral_code, 100),
+        applicationid,
+      ];
+
+      const [result] = await db.query(query, values);
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({
+          success: false,
+          error: "Applicant not found",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+      });
     } catch (error) {
-      console.error("Error updating applicant:", error);
-      res.status(500).json({ error: "Database error" });
+      cleanupUploadedFile(req);
+      console.error("❌ Error updating applicant:", error);
+
+      return res.status(500).json({
+        success: false,
+        error: "Database error",
+      });
     }
   },
 );
 
-router.put("/updateapplicant", upload.single("resume"), async (req, res) => {
-  const data = req.body;
-
-  console.log("Incoming update data:", data);
-
-  // ✅ FIX 5 — preserve empty strings, only default undefined
-  const normalizeText = (v) => (v === undefined ? "" : v);
-
-  let resumeFilename = normalizeText(data.candidatecvattachment);
-
-  if (req.file) {
-    const uniqueFilename = `${data.id}-${req.file.originalname}`;
-    const s3Params = {
-      Bucket: BUCKET_NAME,
-      Key: `resumes/${uniqueFilename}`,
-      Body: fs.createReadStream(req.file.path),
-      ContentType: req.file.mimetype,
-      ACL: "private",
-    };
-
+/*
+========================================
+UPDATE APPLICANT PIPELINE / STATUS
+========================================
+This was previously missing requireAuth.
+========================================
+*/
+router.put(
+  "/updateapplicant",
+  requireAuth,
+  requireRole(...RECRUITMENT_ROLES),
+  upload.single("resume"),
+  async (req, res) => {
     try {
-      await s3.upload(s3Params).promise();
-      resumeFilename = uniqueFilename;
-      fs.unlinkSync(req.file.path);
+      const data = req.body;
+      const applicationid = safeString(data.applicationid, 100);
+
+      if (!applicationid) {
+        cleanupUploadedFile(req);
+
+        return res.status(400).json({
+          success: false,
+          error: "Invalid applicant request.",
+        });
+      }
+
+      let resumeFilename = safeNullableString(data.candidatecvattachment, 255);
+
+      if (req.file) {
+        const filePrefix = safeString(data.id || applicationid, 100);
+        resumeFilename = await uploadResumeToS3(req.file, filePrefix);
+      }
+
+      const accountCode = setAccountCodeByDepartment(data);
+
+      const query = `
+        UPDATE 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
+        SET 
+          department = ?, 
+          profiled_role = ?, 
+          profiled_account = ?, 
+          profiled_lob = ?, 
+          profiled_task = ?, 
+          profiled_acctCode = ?, 
+          initialinterviewdatetime = ?, 
+          initialinterviewstatus = ?, 
+          skillsassessmentdatetime = ?, 
+          skillsassessmentstatus = ?, 
+          clientinterviewdatetime = ?, 
+          clientinterviewstatus = ?, 
+          finaliinterviewdatetime = ?, 
+          finalinterviewstatus = ?, 
+          jobofferdatetime = ?, 
+          jobofferstatus = ?, 
+          onboardingdatetime = ?, 
+          onboardingstatus = ?, 
+          endorsementdatetime = ?, 
+          endorsementstatus = ?, 
+          date_updated = ?, 
+          overall_status = ?, 
+          fallout = ?, 
+          falloutdatetime = ?, 
+          remarks = ?, 
+          recruiter = ?, 
+          worksetup = ?,  
+          candidatecvattachment = ? 
+        WHERE applicationid = ?
+      `;
+
+      const values = [
+        safeNullableString(data.department, 255),
+        safeNullableString(data.roleProfiled, 255),
+        safeNullableString(data.profiledForAccount, 255) || "N/A",
+        safeNullableString(data.lob, 255) || "N/A",
+        safeNullableString(data.task, 255) || "N/A",
+        safeNullableString(accountCode, 100),
+
+        normalizeDate(data.initialInterviewDate),
+        safeNullableString(data.initialInterviewStatus, 100),
+
+        normalizeDate(data.skillsAssessmentDate),
+        safeNullableString(data.skillsAssessmentStatus, 100),
+
+        normalizeDate(data.clientInterviewDate),
+        safeNullableString(data.clientInterviewStatus, 100),
+
+        normalizeDate(data.finalInterviewDate),
+        safeNullableString(data.finalInterviewStatus, 100),
+
+        normalizeDate(data.jobOfferDate),
+        safeNullableString(data.jobOfferStatus, 100),
+
+        normalizeDate(data.onboardingDate),
+        safeNullableString(data.onboardingStatus, 100),
+
+        normalizeDate(data.endorsementDateTime),
+        safeNullableString(data.endorsementStatus, 100),
+
+        normalizeDate(data.dateUpdated),
+        safeNullableString(data.overallStatus, 100),
+
+        safeNullableString(data.fallout, 255),
+        normalizeDate(data.falloutDate),
+
+        safeLongText(data.remarks),
+        safeNullableString(data.recruiter, 255),
+        safeNullableString(data.workSetup, 100),
+
+        resumeFilename,
+        applicationid,
+      ];
+
+      const [result] = await db.query(query, values);
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({
+          success: false,
+          error: "Applicant not found",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+      });
     } catch (error) {
-      console.error("Error uploading resume to S3:", error);
-      return res.status(500).json({ error: "Failed to upload resume" });
+      cleanupUploadedFile(req);
+      console.error("❌ Error updating applicant:", error);
+
+      return res.status(500).json({
+        success: false,
+        error: "Database error",
+      });
     }
-  }
-
-  // Override accountCode based on department
-  switch (data.department) {
-    case "Accounting":
-      data.accountCode = "CMX-ACC-01";
-      break;
-    case "DREAM":
-      data.accountCode = "CMX-DRM-08";
-      break;
-    case "Facilities":
-      data.accountCode = "CMX-FAC-02";
-      break;
-    case "GSD":
-      data.accountCode = "CMX-GSD-03";
-      break;
-    case "HRAD":
-      data.accountCode = "CMX-HRD-04";
-      break;
-    case "IT":
-      data.accountCode = "CMX-ITD-05";
-      break;
-    case "Ops Support":
-      data.accountCode = "CMX-OPS-07";
-      break;
-    case "Recruitment":
-      data.accountCode = "CMX-REC-06";
-      break;
-    default:
-      break;
-  }
-
-  // ✅ Dates are CORRECTLY handled as NULL
-  const normalizeDate = (date) => {
-    if (!date || date.trim() === "") return null;
-    const parsedDate = new Date(date);
-    return isNaN(parsedDate.getTime())
-      ? "1900-01-01"
-      : parsedDate.toISOString().split("T")[0];
-  };
-
-  const query = `
-    UPDATE 1001_cmx_appdata_recruitment_database_ph.db_cmxph_applicant_database
-    SET 
-      department = ?, 
-      profiled_role = ?, 
-      profiled_account = ?, 
-      profiled_lob = ?, 
-      profiled_task = ?, 
-      profiled_acctCode = ?, 
-      initialinterviewdatetime = ?, 
-      initialinterviewstatus = ?, 
-      skillsassessmentdatetime = ?, 
-      skillsassessmentstatus = ?, 
-      clientinterviewdatetime = ?, 
-      clientinterviewstatus = ?, 
-      finaliinterviewdatetime = ?, 
-      finalinterviewstatus = ?, 
-      jobofferdatetime = ?, 
-      jobofferstatus = ?, 
-      onboardingdatetime = ?, 
-      onboardingstatus = ?, 
-      endorsementdatetime = ?, 
-      endorsementstatus = ?, 
-      date_updated = ?, 
-      overall_status = ?, 
-      fallout = ?, 
-      falloutdatetime = ?, 
-      remarks = ?, 
-      recruiter = ?, 
-      worksetup = ?,  
-      candidatecvattachment = ? 
-    WHERE applicationid = ?;
-  `;
-
-  const values = [
-    normalizeText(data.department),
-    normalizeText(data.roleProfiled),
-    normalizeText(data.profiledForAccount) || "N/A",
-    normalizeText(data.lob) || "N/A",
-    normalizeText(data.task) || "N/A",
-    data.accountCode,
-
-    normalizeDate(data.initialInterviewDate),
-    data.initialInterviewStatus || null,
-
-    normalizeDate(data.skillsAssessmentDate),
-    data.skillsAssessmentStatus || null,
-
-    normalizeDate(data.clientInterviewDate),
-    data.clientInterviewStatus || null,
-
-    normalizeDate(data.finalInterviewDate),
-    data.finalInterviewStatus || null,
-
-    normalizeDate(data.jobOfferDate),
-    data.jobOfferStatus || null,
-
-    normalizeDate(data.onboardingDate),
-    data.onboardingStatus || null,
-
-    normalizeDate(data.endorsementDateTime),
-    data.endorsementStatus || null,
-
-    normalizeDate(data.dateUpdated),
-    data.overallStatus || null,
-
-    data.fallout || null,
-    normalizeDate(data.falloutDate),
-
-    normalizeText(data.remarks),
-    normalizeText(data.recruiter),
-    normalizeText(data.workSetup),
-
-    resumeFilename,
-    data.applicationid,
-  ];
-
-  try {
-    await db.query(query, values);
-    res.status(200).json({ success: true });
-  } catch (error) {
-    console.error("Error updating applicant:", error);
-    res.status(500).json({ error: "Database error" });
-  }
-});
+  },
+);
 
 module.exports = router;

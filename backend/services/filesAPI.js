@@ -1,8 +1,15 @@
 const express = require("express");
 const router = express.Router();
-const db = require("../config/dbconfig");
-const { requireAuth } = require("../middleware/authMiddleware");
 const AWS = require("aws-sdk");
+const { requireAuth, requireRole } = require("../middleware/authMiddleware");
+
+/*
+========================================
+ACCESS CONTROL
+========================================
+*/
+const FILE_ACCESS_ROLES = ["Admin", "Super Admin", "Recruiter"];
+
 /*
 ========================================
 AWS / S3
@@ -14,69 +21,201 @@ const s3 = new AWS.S3({
   region: process.env.AWS_REGION,
 });
 
-const BUCKET_NAME = process.env.BUCKET_NAME; // Replace with your S3 bucket name
+const BUCKET_NAME = process.env.BUCKET_NAME;
 
-router.get("/media/:s3Key", async (req, res) => {
-  const { s3Key } = req.params;
+/*
+========================================
+HELPERS
+========================================
+*/
+function isSafeFileName(value) {
+  if (!value) return false;
 
-  if (!s3Key) {
-    return res.status(400).json({ error: "Missing S3 key" });
+  const decoded = decodeURIComponent(String(value)).trim();
+
+  // Block path traversal and folder escaping
+  if (
+    decoded.includes("..") ||
+    decoded.includes("/") ||
+    decoded.includes("\\")
+  ) {
+    return false;
   }
 
-  const s3Params = {
+  // Allow common safe filename characters only
+  return /^[a-zA-Z0-9._\- ()]+$/.test(decoded);
+}
+
+function isSafeS3Key(value) {
+  if (!value) return false;
+
+  const decoded = decodeURIComponent(String(value)).trim();
+
+  // Block traversal and suspicious keys
+  if (
+    decoded.includes("..") ||
+    decoded.startsWith("/") ||
+    decoded.startsWith("\\") ||
+    decoded.includes("\\")
+  ) {
+    return false;
+  }
+
+  // Restrict to expected app folders only
+  const allowedPrefixes = ["resumes/", "voicerecordings/", "media/"];
+
+  if (!allowedPrefixes.some((prefix) => decoded.startsWith(prefix))) {
+    return false;
+  }
+
+  // Allow folder/key style S3 keys, but keep safe characters
+  return /^[a-zA-Z0-9._\- ()/]+$/.test(decoded);
+}
+
+function getDecodedValue(value) {
+  return decodeURIComponent(String(value || "")).trim();
+}
+
+async function createSignedGetUrl({ key, expires = 300 }) {
+  if (!BUCKET_NAME) {
+    throw new Error("BUCKET_NAME is not configured");
+  }
+
+  return s3.getSignedUrlPromise("getObject", {
     Bucket: BUCKET_NAME,
-    Key: decodeURIComponent(s3Key), // handle URL-encoded keys
-    Expires: 300, // 5 minutes
-  };
+    Key: key,
+    Expires: expires,
+  });
+}
 
-  try {
-    const signedUrl = await s3.getSignedUrlPromise("getObject", s3Params);
-    res.json({ url: signedUrl });
-  } catch (err) {
-    console.error("❌ Failed to generate signed URL:", err);
-    res.status(500).json({ error: "Could not generate media access link." });
-  }
-});
+/*
+========================================
+GET GENERIC MEDIA SIGNED URL
+========================================
+Example:
+GET /api/mediafiles/media/resumes/sample.pdf
+GET /api/mediafiles/media/voicerecordings/sample.webm
 
-router.get("/voice/:fileName", async (req, res) => {
-  try {
-    const { fileName } = req.params;
+Note:
+This route requires the key to begin with one of:
+- resumes/
+- voicerecordings/
+- media/
+*/
+router.get(
+  "/media/:s3Key(*)",
+  requireAuth,
+  requireRole(...FILE_ACCESS_ROLES),
+  async (req, res) => {
+    const rawKey = req.params.s3Key;
+    const s3Key = getDecodedValue(rawKey);
 
-    const s3Params = {
-      Bucket: BUCKET_NAME,
-      Key: `voicerecordings/${fileName}`, // same as what you used in upload
-      Expires: 60, // URL expiration time in seconds
-    };
+    if (!isSafeS3Key(s3Key)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid file request.",
+      });
+    }
 
-    const downloadURL = await s3.getSignedUrlPromise("getObject", s3Params);
+    try {
+      const signedUrl = await createSignedGetUrl({
+        key: s3Key,
+        expires: 300,
+      });
 
-    res.redirect(downloadURL);
-  } catch (error) {
-    console.error("❌ Error generating voice download URL:", error);
-    res.status(500).json({ error: "Failed to generate voice download URL" });
-  }
-});
+      return res.status(200).json({
+        success: true,
+        url: signedUrl,
+      });
+    } catch (err) {
+      console.error("❌ Failed to generate media signed URL:", err);
 
-router.get("/resume/:filename", async (req, res) => {
-  const { filename } = req.params;
+      return res.status(500).json({
+        success: false,
+        error: "Could not generate media access link.",
+      });
+    }
+  },
+);
 
-  if (!filename) {
-    return res.status(400).json({ error: "Filename is required" });
-  }
+/*
+========================================
+GET VOICE RECORDING SIGNED URL
+========================================
+*/
+router.get(
+  "/voice/:fileName",
+  requireAuth,
+  requireRole(...FILE_ACCESS_ROLES),
+  async (req, res) => {
+    const fileName = getDecodedValue(req.params.fileName);
 
-  const s3Params = {
-    Bucket: BUCKET_NAME,
-    Key: `resumes/${filename}`,
-    Expires: 3600, // URL valid for 1 hour
-  };
+    if (!isSafeFileName(fileName)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid file request.",
+      });
+    }
 
-  try {
-    const signedUrl = await s3.getSignedUrlPromise("getObject", s3Params);
-    res.json({ url: signedUrl }); // ✅ Return JSON response
-  } catch (err) {
-    console.error("Error generating signed URL:", err);
-    res.status(500).json({ error: "Failed to generate signed URL" });
-  }
-});
+    try {
+      const signedUrl = await createSignedGetUrl({
+        key: `voicerecordings/${fileName}`,
+        expires: 300,
+      });
+
+      return res.status(200).json({
+        success: true,
+        url: signedUrl,
+      });
+    } catch (error) {
+      console.error("❌ Error generating voice signed URL:", error);
+
+      return res.status(500).json({
+        success: false,
+        error: "Could not generate media access link.",
+      });
+    }
+  },
+);
+
+/*
+========================================
+GET RESUME SIGNED URL
+========================================
+*/
+router.get(
+  "/resume/:filename",
+  requireAuth,
+  requireRole(...FILE_ACCESS_ROLES),
+  async (req, res) => {
+    const filename = getDecodedValue(req.params.filename);
+
+    if (!isSafeFileName(filename)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid file request.",
+      });
+    }
+
+    try {
+      const signedUrl = await createSignedGetUrl({
+        key: `resumes/${filename}`,
+        expires: 300,
+      });
+
+      return res.status(200).json({
+        success: true,
+        url: signedUrl,
+      });
+    } catch (err) {
+      console.error("❌ Error generating resume signed URL:", err);
+
+      return res.status(500).json({
+        success: false,
+        error: "Could not generate media access link.",
+      });
+    }
+  },
+);
 
 module.exports = router;

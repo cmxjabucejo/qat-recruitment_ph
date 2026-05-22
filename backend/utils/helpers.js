@@ -1,5 +1,6 @@
 const AWS = require("aws-sdk");
 const multer = require("multer");
+const path = require("path");
 
 /*
 ========================================
@@ -14,7 +15,7 @@ const s3 = new AWS.S3({
 
 /*
 ========================================
-UPLOAD CONFIG (HARDENED)
+UPLOAD CONFIG
 ========================================
 */
 const ALLOWED_FILE_TYPES = [
@@ -24,25 +25,68 @@ const ALLOWED_FILE_TYPES = [
   "image/jpg",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/msword",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-excel",
 ];
 
-// Multer setup for file uploads
-const upload = multer({ dest: "uploads/" });
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILES = 10;
 
+/*
+========================================
+FILENAME / PATH SAFETY
+========================================
+*/
+const safeFilename = (name) => {
+  const ext = path.extname(String(name || "")).toLowerCase();
+  const base = path
+    .basename(String(name || "file"), ext)
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/_+/g, "_")
+    .slice(0, 140);
+
+  return `${base || "file"}${ext}`.slice(0, 180);
+};
+
+const fileFilter = (req, file, cb) => {
+  if (!ALLOWED_FILE_TYPES.includes(file.mimetype)) {
+    return cb(new Error("Invalid file type"));
+  }
+
+  file.originalname = safeFilename(file.originalname);
+
+  return cb(null, true);
+};
+
+/*
+========================================
+MULTER STORAGE
+========================================
+Used by applicantsAPI.js.
+Disk storage is retained because your current route uploads to S3 using:
+fs.createReadStream(req.file.path)
+========================================
+*/
+const upload = multer({
+  dest: "uploads/",
+  limits: {
+    fileSize: MAX_FILE_SIZE,
+    files: 1,
+  },
+  fileFilter,
+});
+
+/*
+========================================
+MEMORY UPLOAD MIDDLEWARE
+Used by other routes if needed.
+========================================
+*/
 const newuploadmiddleware = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB per file
-    files: 10,
+    fileSize: MAX_FILE_SIZE,
+    files: MAX_FILES,
   },
-  fileFilter: (req, file, cb) => {
-    if (!ALLOWED_FILE_TYPES.includes(file.mimetype)) {
-      return cb(new Error("Invalid file type"));
-    }
-    cb(null, true);
-  },
+  fileFilter,
 });
 
 /*
@@ -55,7 +99,7 @@ const normalizeDate = (val) => {
 
   try {
     const d = new Date(val);
-    if (isNaN(d.getTime())) return null;
+    if (Number.isNaN(d.getTime())) return null;
     return d.toISOString().slice(0, 10);
   } catch {
     return null;
@@ -64,25 +108,30 @@ const normalizeDate = (val) => {
 
 const normalizeNumber = (val) => {
   if (val === "" || val === null || val === undefined) return null;
+
   const num = Number(val);
   return Number.isNaN(num) ? null : num;
 };
 
 const safeString = (val, maxLen = 255) => {
   if (val === null || val === undefined) return null;
+
   return String(val).trim().slice(0, maxLen);
 };
 
-const safeLongText = (val) => {
+const safeLongText = (val, maxLen = 10000) => {
   if (val === null || val === undefined) return null;
-  return String(val).trim();
+
+  return String(val).trim().slice(0, maxLen);
 };
 
-const safeFilename = (name) => {
-  return String(name || "file")
-    .replace(/[^a-zA-Z0-9._-]/g, "_")
-    .replace(/_+/g, "_")
-    .slice(0, 180);
+const escapeHtml = (value) => {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 };
 
 const formatNoteEntry = (first, last, rawNote) => {
@@ -100,8 +149,9 @@ const formatNoteEntry = (first, last, rawNote) => {
   const timestamp = now.toLocaleString("en-US", options).replace(",", "");
   const safeFirst = safeString(first, 100) || "Unknown";
   const safeLast = safeString(last, 100) || "User";
+  const safeNote = safeLongText(rawNote) || "";
 
-  return `---- ${safeFirst} ${safeLast} || ${timestamp} ----\n\n${safeLongText(rawNote) || ""}`;
+  return `---- ${safeFirst} ${safeLast} || ${timestamp} ----\n\n${safeNote}`;
 };
 
 const parseAttachments = (value) => {
@@ -116,24 +166,44 @@ const parseAttachments = (value) => {
 };
 
 const dedupeAttachments = (files) => {
+  if (!Array.isArray(files)) return [];
+
   return files.filter(
-    (file, index, self) => index === self.findIndex((f) => f.url === file.url),
+    (file, index, self) =>
+      file &&
+      file.url &&
+      index === self.findIndex((f) => f?.url === file.url),
   );
 };
 
 const isSafeS3Key = (key) => {
   if (!key || typeof key !== "string") return false;
-  if (key.includes("..")) return false;
-  if (key.includes("\\")) return false;
-  return true;
+
+  const cleaned = decodeURIComponent(key).trim();
+
+  if (!cleaned) return false;
+  if (cleaned.includes("..")) return false;
+  if (cleaned.includes("\\")) return false;
+  if (cleaned.startsWith("/")) return false;
+
+  const allowedPrefixes = ["resumes/", "voicerecordings/", "media/"];
+
+  if (!allowedPrefixes.some((prefix) => cleaned.startsWith(prefix))) {
+    return false;
+  }
+
+  return /^[a-zA-Z0-9._\- ()/]+$/.test(cleaned);
 };
 
 module.exports = {
   s3,
   ALLOWED_FILE_TYPES,
+  MAX_FILE_SIZE,
+  MAX_FILES,
   newuploadmiddleware,
   upload,
   dedupeAttachments,
+  escapeHtml,
   formatNoteEntry,
   isSafeS3Key,
   normalizeDate,
