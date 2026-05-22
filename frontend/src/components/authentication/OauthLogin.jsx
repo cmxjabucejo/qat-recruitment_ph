@@ -30,13 +30,15 @@ const OauthLogin = () => {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    if (!normalizedEmail) {
-      setError("Please enter your email address.");
-      return;
-    }
-
-    if (!isCallmaxEmail(normalizedEmail)) {
-      setError("Please use your Callmax email address.");
+    /*
+    ========================================
+    GENERIC VALIDATION RESPONSE
+    ========================================
+    Do not reveal whether the email is missing,
+    invalid, unregistered, inactive, or unauthorized.
+    */
+    if (!normalizedEmail || !isCallmaxEmail(normalizedEmail)) {
+      setError(AUTH_GENERIC_MESSAGE);
       return;
     }
 
@@ -47,9 +49,9 @@ const OauthLogin = () => {
       ========================================
       1. CHECK EMAIL
       ========================================
-      Security hardening:
-      The backend now returns a generic response and does NOT return user data.
-      Do not check checkData.user, userStatus, or userLevel here.
+      Backend returns generic response only.
+      Frontend must not check user existence,
+      user status, or user role here.
       */
       const checkRes = await apiFetch(`${SERVER_URL}/auth/check-email`, {
         method: "POST",
@@ -60,7 +62,7 @@ const OauthLogin = () => {
       const checkData = await checkRes.json().catch(() => ({}));
 
       if (!checkRes.ok || !checkData.success) {
-        setError(checkData.message || AUTH_GENERIC_MESSAGE);
+        setError(AUTH_GENERIC_MESSAGE);
         return;
       }
 
@@ -68,8 +70,8 @@ const OauthLogin = () => {
       ========================================
       2. SEND OTP
       ========================================
-      For invalid/inactive users, backend returns the same generic shape.
-      The frontend should not reveal whether the email exists.
+      Backend returns the same outward response
+      shape for valid and invalid users.
       */
       const otpRes = await apiFetch(`${SERVER_URL}/auth/send-otp`, {
         method: "POST",
@@ -77,24 +79,24 @@ const OauthLogin = () => {
         body: JSON.stringify({ emailAddress: normalizedEmail }),
       });
 
-      if (!otpRes) return;
-
-      const otpData = await otpRes.json().catch(() => ({}));
-
-      if (otpRes.status === 429) {
-        setError(otpData.message || "Too many requests. Please wait.");
+      if (!otpRes) {
+        setError(AUTH_GENERIC_MESSAGE);
         return;
       }
 
+      const otpData = await otpRes.json().catch(() => ({}));
+
       if (!otpRes.ok || !otpData.success || !otpData.challengeId) {
-        setError(otpData.message || AUTH_GENERIC_MESSAGE);
+        setError(AUTH_GENERIC_MESSAGE);
         return;
       }
 
       /*
       ========================================
-      3. STORE OTP SESSION
+      3. STORE OTP FLOW VALUES
       ========================================
+      These values are temporary login-flow values,
+      not authenticated identity values.
       */
       localStorage.setItem("pendingChallengeId", otpData.challengeId);
       localStorage.setItem("pendingEmail", normalizedEmail);
@@ -115,7 +117,7 @@ const OauthLogin = () => {
       });
     } catch (err) {
       console.error("OTP login error:", err);
-      setError("An error occurred. Please try again.");
+      setError(AUTH_GENERIC_MESSAGE);
     } finally {
       setIsSending(false);
     }
@@ -153,7 +155,7 @@ const OauthLogin = () => {
 
           <input
             type="email"
-            placeholder="Enter your registered email"
+            placeholder="Enter your email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             onKeyDown={(e) => {

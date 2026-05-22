@@ -60,9 +60,7 @@ const allowedOrigins = [
   "http://localhost:5173",
 ].filter(Boolean);
 
-console.log("🌎 ENV:", ENV);
 console.log("🌎 SERVER PORT:", PORT);
-console.log("🌎 Allowed CORS origins:", allowedOrigins);
 
 /*
 ========================================
