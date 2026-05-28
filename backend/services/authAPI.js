@@ -14,10 +14,11 @@ const MAX_VERIFY_ATTEMPTS = 5;
 const SESSION_COOKIE_NAME = process.env.SESSION_NAME || "cmx_recruitment_sid";
 
 const AUTH_GENERIC_MESSAGE = "Invalid credentials or authentication request";
+const IFVALID_AUTH_MESSAGE = "If request is valid, an OTP will be sent.";
 
 const GENERIC_AUTH_RESPONSE = {
   success: true,
-  message: AUTH_GENERIC_MESSAGE,
+  message: IFVALID_AUTH_MESSAGE,
 };
 
 const RECRUITMENT_ROLES = ["Admin", "Super Admin", "Recruiter"];
@@ -295,7 +296,6 @@ router.post("/send-otp", async (req, res) => {
         success: true,
         challengeId: dummyChallengeId,
         expiresAt: dummyExpires,
-        message: AUTH_GENERIC_MESSAGE,
       });
     }
 
@@ -315,7 +315,6 @@ router.post("/send-otp", async (req, res) => {
         success: true,
         challengeId: dummyChallengeId,
         expiresAt: dummyExpires,
-        message: AUTH_GENERIC_MESSAGE,
       });
     }
 
@@ -417,7 +416,6 @@ router.post("/send-otp", async (req, res) => {
       success: true,
       challengeId,
       expiresAt: expires,
-      message: AUTH_GENERIC_MESSAGE,
     });
   } catch (err) {
     console.error("❌ send-otp error:", err);
@@ -435,7 +433,6 @@ router.post("/send-otp", async (req, res) => {
       success: true,
       challengeId: dummyChallengeId,
       expiresAt: dummyExpires,
-      message: AUTH_GENERIC_MESSAGE,
     });
   }
 });

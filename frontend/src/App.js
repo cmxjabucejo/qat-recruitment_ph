@@ -47,9 +47,10 @@ function RequireAuth({ isAuthed }) {
 ========================================
 */
 function RequireAdminOrHigher({ user }) {
+  const adminRoles = ["Admin", "Super Admin", "Recruiter"];
   const location = useLocation();
 
-  if (user?.userLevel === "User") {
+  if (!adminRoles.includes(user?.userLevel)) {
     return <AccessDenied />;
   }
 
@@ -109,12 +110,7 @@ function App() {
   ========================================
   */
   useEffect(() => {
-    const publicPaths = [
-      "/",
-      "/OauthLogin",
-      "/OTP-SECURE",
-      "/OtpVerification",
-    ];
+    const publicPaths = ["/", "/OauthLogin", "/OTP-SECURE", "/OtpVerification"];
     const isPublicPath = publicPaths.includes(location.pathname);
 
     const checkSession = async () => {

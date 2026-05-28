@@ -108,13 +108,16 @@ const OauthLogin = () => {
       4. GO TO OTP PAGE
       ========================================
       */
-      navigate(`/OtpVerification?redirect=${encodeURIComponent(redirectPath)}`, {
-        state: {
-          emailAddress: normalizedEmail,
-          flow: "login",
-          redirectPath,
+      navigate(
+        `/OtpVerification?redirect=${encodeURIComponent(redirectPath)}`,
+        {
+          state: {
+            emailAddress: normalizedEmail,
+            flow: "login",
+            redirectPath,
+          },
         },
-      });
+      );
     } catch (err) {
       console.error("OTP login error:", err);
       setError(AUTH_GENERIC_MESSAGE);
