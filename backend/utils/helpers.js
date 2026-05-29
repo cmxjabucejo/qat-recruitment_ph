@@ -1,7 +1,6 @@
 const multer = require("multer");
 const path = require("path");
 const dotenv = require("dotenv");
-
 dotenv.config();
 
 const { S3Client } = require("@aws-sdk/client-s3");
@@ -14,7 +13,7 @@ const s3 = new S3Client({
   },
 });
 
-const BUCKET_NAME = "cmxdrqarecordings";
+const BUCKET_NAME = process.env.BUCKET_NAME;
 
 /*
 ========================================

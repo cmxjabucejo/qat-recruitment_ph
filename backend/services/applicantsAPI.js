@@ -2,13 +2,9 @@ const express = require("express");
 const router = express.Router();
 const db = require("../config/dbconfig");
 const { requireAuth, requireRole } = require("../middleware/authMiddleware");
-const { upload, s3 } = require("../utils/helpers");
+const { upload, s3, BUCKET_NAME } = require("../utils/helpers");
 const { PutObjectCommand } = require("@aws-sdk/client-s3");
 const fs = require("fs");
-const dotenv = require("dotenv");
-dotenv.config();
-
-const BUCKET_NAME = process.env.BUCKET_NAME;
 /*
 ========================================
 ACCESS CONTROL
