@@ -3,7 +3,6 @@ const router = express.Router();
 const { s3, BUCKET_NAME } = require("../utils/helpers");
 const { GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
-
 const { requireAuth, requireRole } = require("../middleware/authMiddleware");
 
 /*

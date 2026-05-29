@@ -4,9 +4,11 @@ const db = require("../config/dbconfig");
 const { requireAuth, requireRole } = require("../middleware/authMiddleware");
 const { upload, s3 } = require("../utils/helpers");
 const { PutObjectCommand } = require("@aws-sdk/client-s3");
-const BUCKET_NAME = process.env.BUCKET_NAME;
 const fs = require("fs");
+const dotenv = require("dotenv");
+dotenv.config();
 
+const BUCKET_NAME = process.env.BUCKET_NAME;
 /*
 ========================================
 ACCESS CONTROL
