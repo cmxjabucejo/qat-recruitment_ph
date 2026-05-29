@@ -1,6 +1,9 @@
 const express = require("express");
 const router = express.Router();
-const AWS = require("aws-sdk");
+const { s3, BUCKET_NAME } = require("../utils/helpers");
+const { GetObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+
 const { requireAuth, requireRole } = require("../middleware/authMiddleware");
 
 /*
@@ -9,19 +12,6 @@ ACCESS CONTROL
 ========================================
 */
 const FILE_ACCESS_ROLES = ["Admin", "Super Admin", "Recruiter"];
-
-/*
-========================================
-AWS / S3
-========================================
-*/
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: process.env.AWS_REGION,
-});
-
-const BUCKET_NAME = process.env.BUCKET_NAME;
 
 /*
 ========================================
@@ -81,11 +71,12 @@ async function createSignedGetUrl({ key, expires = 300 }) {
     throw new Error("BUCKET_NAME is not configured");
   }
 
-  return s3.getSignedUrlPromise("getObject", {
+  const command = new GetObjectCommand({
     Bucket: BUCKET_NAME,
     Key: key,
-    Expires: expires,
   });
+
+  return await getSignedUrl(s3, command, { expiresIn: expires });
 }
 
 /*

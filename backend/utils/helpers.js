@@ -1,17 +1,17 @@
-const AWS = require("aws-sdk");
 const multer = require("multer");
 const path = require("path");
 
-/*
-========================================
-AWS / S3
-========================================
-*/
-const s3 = new AWS.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+const { S3Client } = require("@aws-sdk/client-s3");
+
+const s3 = new S3Client({
   region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
 });
+
+const BUCKET_NAME = "cmxdrqarecordings";
 
 /*
 ========================================
@@ -170,9 +170,7 @@ const dedupeAttachments = (files) => {
 
   return files.filter(
     (file, index, self) =>
-      file &&
-      file.url &&
-      index === self.findIndex((f) => f?.url === file.url),
+      file && file.url && index === self.findIndex((f) => f?.url === file.url),
   );
 };
 
@@ -197,6 +195,7 @@ const isSafeS3Key = (key) => {
 
 module.exports = {
   s3,
+  BUCKET_NAME,
   ALLOWED_FILE_TYPES,
   MAX_FILE_SIZE,
   MAX_FILES,

@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require("../config/dbconfig");
 const { requireAuth, requireRole } = require("../middleware/authMiddleware");
 const { upload, s3 } = require("../utils/helpers");
+const { PutObjectCommand } = require("@aws-sdk/client-s3");
 const BUCKET_NAME = process.env.BUCKET_NAME;
 const fs = require("fs");
 
@@ -106,10 +107,9 @@ async function uploadResumeToS3(file, applicationId) {
     Key: `resumes/${uniqueFilename}`,
     Body: fs.createReadStream(file.path),
     ContentType: file.mimetype,
-    ACL: "private",
   };
 
-  await s3.upload(s3Params).promise();
+  await s3.send(new PutObjectCommand(s3Params));
 
   try {
     fs.unlinkSync(file.path);
