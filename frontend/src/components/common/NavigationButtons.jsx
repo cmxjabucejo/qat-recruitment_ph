@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import axios from "axios";
 import { SERVER_URL } from "../lib/constants"; // Adjust this based on your setup
+import { api } from "../lib/axiosInterceptor";
+import { useCsrfStore } from "../store/csrfStore";
 
 const NavigationButtons = () => {
   const navigate = useNavigate();
@@ -18,6 +19,7 @@ const NavigationButtons = () => {
   const [accountOptions, setAccountOptions] = useState([]);
   const [taskOptions, setTaskOptions] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState("");
+  const { csrfToken } = useCsrfStore();
 
   // Fetch manager details
   useEffect(() => {
@@ -31,7 +33,7 @@ const NavigationButtons = () => {
       }
 
       try {
-        const response = await axios.get(`${SERVER_URL}/api/employeeManagers`, {
+        const response = await api.get(`${SERVER_URL}/api/employeeManagers`, {
           params: { userid },
         });
 
@@ -40,10 +42,10 @@ const NavigationButtons = () => {
       } catch (err) {
         console.error(
           "❌ Error fetching manager data:",
-          err.response?.data || err.message
+          err.response?.data || err.message,
         );
         setError(
-          err.response?.data?.error || "Unable to fetch manager details."
+          err.response?.data?.error || "Unable to fetch manager details.",
         );
         setManualEntry(true); // Enable manual entry if the employee is not found
       }
@@ -54,13 +56,15 @@ const NavigationButtons = () => {
 
   const fetchAccountList = async () => {
     try {
-      const response = await fetch(`${SERVER_URL}/api/scheduler/accountList`);
+      const response = await fetch(`${SERVER_URL}/api/scheduler/accountList`, {
+        headers: { "X-CSRF-Token": csrfToken },
+      });
 
       if (!response.ok) {
         console.error(
           "❌ Failed to fetch account list:",
           response.status,
-          response.statusText
+          response.statusText,
         );
         throw new Error("Failed to fetch account list");
       }

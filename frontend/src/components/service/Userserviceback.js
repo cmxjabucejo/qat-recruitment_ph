@@ -1,5 +1,6 @@
 import axios from "axios";
 import { SERVER_URL } from "../lib/constants";
+import { api } from "../lib/axiosInterceptor";
 
 class UserService {
   static BASE_URL = SERVER_URL;
@@ -13,13 +14,13 @@ class UserService {
 
   static async getUserAccess(userid) {
     try {
-      const response = await axios.get(
-        `${UserService.BASE_URL}/api/userAccess?userid=${userid}`
+      const response = await api.get(
+        `${UserService.BASE_URL}/api/userAccess?userid=${userid}`,
       );
       return response?.data;
     } catch (err) {
       throw new Error(
-        err?.response?.data?.message || "Failed fetching user access"
+        err?.response?.data?.message || "Failed fetching user access",
       );
     }
   }
@@ -28,7 +29,7 @@ class UserService {
   static async login(userid, password) {
     try {
       // console.log("Login request:", { userid, password });
-      const response = await axios.post(`${UserService.BASE_URL}/auth/login`, {
+      const response = await api.post(`${UserService.BASE_URL}/auth/login`, {
         userid,
         password,
       });
@@ -64,10 +65,10 @@ class UserService {
   // Use authHeader function for authorization
   static async register(userData, token) {
     try {
-      const response = await axios.post(
+      const response = await api.post(
         `${UserService.BASE_URL}/auth/register`,
         userData,
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {
@@ -77,9 +78,9 @@ class UserService {
 
   static async getAllUsers(token) {
     try {
-      const response = await axios.get(
+      const response = await api.get(
         `${UserService.BASE_URL}/admin/get-all-users`,
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {
@@ -89,9 +90,9 @@ class UserService {
 
   static async getYourProfile(token) {
     try {
-      const response = await axios.get(
+      const response = await api.get(
         `${UserService.BASE_URL}/adminuser/get-profile`,
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {
@@ -101,9 +102,9 @@ class UserService {
 
   static async getUserById(userId, token) {
     try {
-      const response = await axios.get(
+      const response = await api.get(
         `${UserService.BASE_URL}/admin/get-users/${userId}`,
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {
@@ -113,9 +114,9 @@ class UserService {
 
   static async deleteUser(userId, token) {
     try {
-      const response = await axios.delete(
+      const response = await api.delete(
         `${UserService.BASE_URL}/admin/delete/${userId}`,
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {
@@ -125,10 +126,10 @@ class UserService {
 
   static async updateUser(userId, userData, token) {
     try {
-      const response = await axios.put(
+      const response = await api.put(
         `${UserService.BASE_URL}/admin/update/${userId}`,
         userData,
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {
@@ -139,10 +140,10 @@ class UserService {
   // New method to update the password
   static async updatePassword(password, token) {
     try {
-      const response = await axios.put(
+      const response = await api.put(
         `${UserService.BASE_URL}/users/updatePassword`, // Endpoint for updating password
         { password }, // Send only the password field in the request body
-        UserService.authHeader(token)
+        UserService.authHeader(token),
       );
       return response.data;
     } catch (err) {

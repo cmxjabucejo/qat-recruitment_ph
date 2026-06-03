@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
-import axios from "axios";
 
 import { SERVER_URL } from "../lib/constants";
+import { api } from "../lib/axiosInterceptor";
 
 /* ---------- Read Only Input ---------- */
 const ReadOnlyInput = ({ label, value }) => (
@@ -291,7 +291,7 @@ export default function UpdateCandidateLifecycleModal({
                   type="button"
                   className="text-blue-600 underline text-sm"
                   onClick={async () => {
-                    const res = await axios.get(
+                    const res = await api.get(
                       `${SERVER_URL}/mediafiles/resume/${formData.candidatecvattachment}`,
                       {
                         withCredentials: true,

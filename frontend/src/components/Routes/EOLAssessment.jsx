@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { DateRange } from "react-date-range";
 import { format } from "date-fns";
 import { enUS } from "date-fns/locale";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 import { Doughnut } from "react-chartjs-2";
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
@@ -219,7 +219,7 @@ export default function EOLAssessment() {
     ? ((passedOverall / totalEntries) * 100).toFixed(2)
     : "0.00";
 
-  const handleExport = () => {
+  const handleExport = async () => {
     const exportRows = Array.isArray(filteredRows) ? filteredRows : [];
 
     if (!exportRows.length) {
@@ -227,14 +227,45 @@ export default function EOLAssessment() {
       return;
     }
 
-    const ws = XLSX.utils.json_to_sheet(exportRows);
-    const wb = XLSX.utils.book_new();
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("EOLAssessment");
 
-    XLSX.utils.book_append_sheet(wb, ws, "EOLAssessment");
+    const headers = Object.keys(exportRows[0]);
 
-    const buffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    worksheet.columns = headers.map((header) => ({
+      header,
+      key: header,
+      width: Math.max(header.length + 5, 20),
+    }));
 
-    saveAs(new Blob([buffer]), "EOL_Assessment.xlsx");
+    exportRows.forEach((row) => {
+      worksheet.addRow(row);
+    });
+
+    worksheet.getRow(1).font = {
+      bold: true,
+    };
+
+    worksheet.views = [{ state: "frozen", ySplit: 1 }];
+
+    worksheet.columns.forEach((column) => {
+      let maxLength = column.header.length;
+
+      column.eachCell({ includeEmpty: true }, (cell) => {
+        const value = cell.value ? cell.value.toString() : "";
+        maxLength = Math.max(maxLength, value.length);
+      });
+
+      column.width = Math.min(maxLength + 3, 50);
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+
+    saveAs(blob, "EOL_Assessment.xlsx");
   };
 
   return (
@@ -301,7 +332,10 @@ export default function EOLAssessment() {
                   label="Avg English"
                   value={`${averageEnglishScore}%`}
                 />
-                <AnalyticsCard label="Avg Email" value={`${averageEmailScore}%`} />
+                <AnalyticsCard
+                  label="Avg Email"
+                  value={`${averageEmailScore}%`}
+                />
                 <AnalyticsCard
                   label="Avg Overall"
                   value={`${averageOverallScore}%`}
@@ -388,46 +422,88 @@ export default function EOLAssessment() {
 
             <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-lg border bg-white shadow-sm">
               <div className="h-full overflow-auto">
-                <table ref={tableRef} className="min-w-[1180px] w-full table-fixed text-[13px]">
+                <table
+                  ref={tableRef}
+                  className="min-w-[1180px] w-full table-fixed text-[13px]"
+                >
                   <thead className="sticky top-0 z-10 bg-slate-100 text-[10px] uppercase tracking-wide text-slate-600">
                     <tr>
-                      <th style={{ width: "8%" }} className="px-3 py-2 text-left">
+                      <th
+                        style={{ width: "8%" }}
+                        className="px-3 py-2 text-left"
+                      >
                         Date
                       </th>
-                      <th style={{ width: "13%" }} className="px-3 py-2 text-left">
+                      <th
+                        style={{ width: "13%" }}
+                        className="px-3 py-2 text-left"
+                      >
                         Candidate
                       </th>
-                      <th style={{ width: "14%" }} className="px-3 py-2 text-left">
+                      <th
+                        style={{ width: "14%" }}
+                        className="px-3 py-2 text-left"
+                      >
                         Position
                       </th>
-                      <th style={{ width: "6%" }} className="px-3 py-2 text-left">
+                      <th
+                        style={{ width: "6%" }}
+                        className="px-3 py-2 text-left"
+                      >
                         Attempt
                       </th>
-                      <th style={{ width: "7%" }} className="px-3 py-2 text-left">
+                      <th
+                        style={{ width: "7%" }}
+                        className="px-3 py-2 text-left"
+                      >
                         Grammar
                       </th>
-                      <th style={{ width: "7%" }} className="px-3 py-2 text-left">
+                      <th
+                        style={{ width: "7%" }}
+                        className="px-3 py-2 text-left"
+                      >
                         Reading
                       </th>
-                      <th style={{ width: "7%" }} className="px-3 py-2 text-left">
+                      <th
+                        style={{ width: "7%" }}
+                        className="px-3 py-2 text-left"
+                      >
                         Sentence
                       </th>
-                      <th style={{ width: "8%" }} className="px-3 py-2 text-left">
+                      <th
+                        style={{ width: "8%" }}
+                        className="px-3 py-2 text-left"
+                      >
                         English
                       </th>
-                      <th style={{ width: "8%" }} className="px-3 py-2 text-left">
+                      <th
+                        style={{ width: "8%" }}
+                        className="px-3 py-2 text-left"
+                      >
                         Remarks
                       </th>
-                      <th style={{ width: "8%" }} className="px-3 py-2 text-left">
+                      <th
+                        style={{ width: "8%" }}
+                        className="px-3 py-2 text-left"
+                      >
                         Email
                       </th>
-                      <th style={{ width: "8%" }} className="px-3 py-2 text-left">
+                      <th
+                        style={{ width: "8%" }}
+                        className="px-3 py-2 text-left"
+                      >
                         Email Remarks
                       </th>
-                      <th style={{ width: "7%" }} className="px-3 py-2 text-left">
+                      <th
+                        style={{ width: "7%" }}
+                        className="px-3 py-2 text-left"
+                      >
                         Overall
                       </th>
-                      <th style={{ width: "7%" }} className="px-3 py-2 text-left">
+                      <th
+                        style={{ width: "7%" }}
+                        className="px-3 py-2 text-left"
+                      >
                         Result
                       </th>
                     </tr>
@@ -436,7 +512,10 @@ export default function EOLAssessment() {
                   <tbody>
                     {isLoading ? (
                       <tr>
-                        <td colSpan="13" className="py-6 text-center text-slate-400">
+                        <td
+                          colSpan="13"
+                          className="py-6 text-center text-slate-400"
+                        >
                           Loading assessment data...
                         </td>
                       </tr>
@@ -462,7 +541,9 @@ export default function EOLAssessment() {
                           <tr
                             key={row.id || row.applicantid || i}
                             className={`cursor-pointer border-b border-slate-100 transition-colors ${
-                              selectedRowIndex === i ? "bg-blue-50" : "hover:bg-slate-50"
+                              selectedRowIndex === i
+                                ? "bg-blue-50"
+                                : "hover:bg-slate-50"
                             }`}
                             onClick={() => {
                               setSelectedRow(row);
@@ -488,7 +569,9 @@ export default function EOLAssessment() {
                             </td>
 
                             <td className="px-3 py-2 align-top">
-                              <div className="whitespace-nowrap">{row.attempt_no || "—"}</div>
+                              <div className="whitespace-nowrap">
+                                {row.attempt_no || "—"}
+                              </div>
                             </td>
 
                             <td className="px-3 py-2 align-top">
@@ -516,7 +599,9 @@ export default function EOLAssessment() {
                             </td>
 
                             <td className="px-3 py-2 align-top">
-                              <div className="line-clamp-2">{row.remarks || "—"}</div>
+                              <div className="line-clamp-2">
+                                {row.remarks || "—"}
+                              </div>
                             </td>
 
                             <td className="px-3 py-2 align-top">
@@ -526,12 +611,16 @@ export default function EOLAssessment() {
                             </td>
 
                             <td className="px-3 py-2 align-top">
-                              <div className="line-clamp-2">{row.email_remarks || "—"}</div>
+                              <div className="line-clamp-2">
+                                {row.email_remarks || "—"}
+                              </div>
                             </td>
 
                             <td className="px-3 py-2 align-top font-bold">
                               <div className="whitespace-nowrap">
-                                {overallRate !== null ? `${overallRate.toFixed(2)}%` : "—"}
+                                {overallRate !== null
+                                  ? `${overallRate.toFixed(2)}%`
+                                  : "—"}
                               </div>
                             </td>
 
@@ -545,7 +634,11 @@ export default function EOLAssessment() {
                                     : "bg-slate-100 text-slate-500"
                                 }`}
                               >
-                                {hasOverall ? (overallPassed ? "Passed" : "Failed") : "—"}
+                                {hasOverall
+                                  ? overallPassed
+                                    ? "Passed"
+                                    : "Failed"
+                                  : "—"}
                               </div>
                             </td>
                           </tr>
@@ -553,7 +646,10 @@ export default function EOLAssessment() {
                       })
                     ) : (
                       <tr>
-                        <td colSpan="13" className="py-6 text-center text-slate-400">
+                        <td
+                          colSpan="13"
+                          className="py-6 text-center text-slate-400"
+                        >
                           No results found.
                         </td>
                       </tr>
@@ -575,8 +671,14 @@ export default function EOLAssessment() {
                   </p>
 
                   <div className="space-y-3">
-                    <PreviewItem label="Position" value={selectedRow.applied_position_title} />
-                    <PreviewItem label="Attempt No" value={selectedRow.attempt_no} />
+                    <PreviewItem
+                      label="Position"
+                      value={selectedRow.applied_position_title}
+                    />
+                    <PreviewItem
+                      label="Attempt No"
+                      value={selectedRow.attempt_no}
+                    />
                     <PreviewItem
                       label="Grammar Score"
                       value={percentText(selectedRow.grammar_score)}
@@ -598,8 +700,14 @@ export default function EOLAssessment() {
                       label="Email Etiquette"
                       value={percentText(selectedRow.overall_email_score)}
                     />
-                    <PreviewItem label="Email Remarks" value={selectedRow.email_remarks} />
-                    <PreviewItem label="Date" value={formatDate(selectedRow.assessment_date)} />
+                    <PreviewItem
+                      label="Email Remarks"
+                      value={selectedRow.email_remarks}
+                    />
+                    <PreviewItem
+                      label="Date"
+                      value={formatDate(selectedRow.assessment_date)}
+                    />
                     <PreviewItem
                       label="Overall Rate"
                       value={
@@ -658,7 +766,10 @@ export default function EOLAssessment() {
                     label="Position"
                     value={selectedRow.applied_position_title}
                   />
-                  <PreviewItem label="Attempt No" value={selectedRow.attempt_no} />
+                  <PreviewItem
+                    label="Attempt No"
+                    value={selectedRow.attempt_no}
+                  />
                   <PreviewItem
                     label="Grammar Score"
                     value={percentText(selectedRow.grammar_score)}

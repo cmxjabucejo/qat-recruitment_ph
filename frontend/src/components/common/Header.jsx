@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import cmxLogo from "../../assets/cmxlogo-removebg-preview.png";
 import { SERVER_URL } from "../lib/constants.js";
 import "./Header.css";
+import { useCsrfStore } from "../store/csrfStore.js";
 
 /*
 ========================================
@@ -95,6 +96,7 @@ const Header = ({
   const [isUserLoading, setIsUserLoading] = useState(true);
   const [isLogoutModalVisible, setIsLogoutModalVisible] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const { csrfToken } = useCsrfStore;
 
   useEffect(() => {
     let mounted = true;
@@ -108,6 +110,7 @@ const Header = ({
           credentials: "include",
           headers: {
             "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken,
           },
         });
 
@@ -184,6 +187,7 @@ const Header = ({
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
         },
       });
     } catch (error) {
@@ -212,11 +216,7 @@ const Header = ({
         <div className="flex w-full items-center justify-between px-4 py-2">
           {/* LEFT: Logo + App Title */}
           <div className="flex items-center gap-3">
-            <img
-              src={cmxLogo}
-              alt="CMX Logo"
-              className="h-8 object-contain"
-            />
+            <img src={cmxLogo} alt="CMX Logo" className="h-8 object-contain" />
 
             <div>
               <h1 className="text-lg font-semibold tracking-wide text-slate-800">

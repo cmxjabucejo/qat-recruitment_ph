@@ -3,8 +3,7 @@ import { DateRange } from "react-date-range";
 import { format } from "date-fns";
 import { enUS } from "date-fns/locale";
 import { saveAs } from "file-saver";
-import * as XLSX from "xlsx";
-
+import ExcelJS from "exceljs";
 import searchIcon from "../../assets/search_symbol.png";
 import SidebarIcons from "../../components/common/Sidebar";
 import Header from "../../components/common/Header";
@@ -87,8 +86,7 @@ export default function TypingTest() {
       );
 
       const createdDate = r?.CREATED_AT ? new Date(r.CREATED_AT) : null;
-      const hasValidDate =
-        createdDate && !Number.isNaN(createdDate.getTime());
+      const hasValidDate = createdDate && !Number.isNaN(createdDate.getTime());
 
       const inRange =
         !r?.CREATED_AT ||
@@ -113,7 +111,7 @@ export default function TypingTest() {
     )}`;
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     const exportRows = Array.isArray(filteredRows) ? filteredRows : [];
 
     if (!exportRows.length) {
@@ -121,18 +119,73 @@ export default function TypingTest() {
       return;
     }
 
-    const worksheet = XLSX.utils.json_to_sheet(exportRows);
-    const workbook = XLSX.utils.book_new();
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Callmax Solutions";
+    workbook.created = new Date();
 
-    XLSX.utils.book_append_sheet(workbook, worksheet, "TypingResults");
+    const worksheet = workbook.addWorksheet("TypingResults");
 
-    const excelBuffer = XLSX.write(workbook, {
-      bookType: "xlsx",
-      type: "array",
+    const headers = Object.keys(exportRows[0]);
+
+    worksheet.columns = headers.map((header) => ({
+      header,
+      key: header,
+      width: Math.max(header.length + 5, 20),
+    }));
+
+    exportRows.forEach((row) => {
+      worksheet.addRow(row);
     });
 
-    const blob = new Blob([excelBuffer], {
-      type: "application/octet-stream",
+    // Header styling
+    const headerRow = worksheet.getRow(1);
+
+    headerRow.font = {
+      bold: true,
+      color: { argb: "FFFFFFFF" },
+    };
+
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF4D68AA" },
+    };
+
+    headerRow.alignment = {
+      horizontal: "center",
+      vertical: "middle",
+    };
+
+    // Freeze header row
+    worksheet.views = [
+      {
+        state: "frozen",
+        ySplit: 1,
+      },
+    ];
+
+    // Auto-filter
+    worksheet.autoFilter = {
+      from: "A1",
+      to: `${String.fromCharCode(64 + headers.length)}1`,
+    };
+
+    // Auto-size columns
+    worksheet.columns.forEach((column) => {
+      let maxLength = column.header.length;
+
+      column.eachCell({ includeEmpty: true }, (cell) => {
+        const value = cell.value ? cell.value.toString() : "";
+        maxLength = Math.max(maxLength, value.length);
+      });
+
+      column.width = Math.min(maxLength + 3, 50);
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
 
     const fileName = `TypingTestResults_${
@@ -170,9 +223,7 @@ export default function TypingTest() {
   }, {});
 
   const topNetSpeed = topNetSpeedRow.NET_SPEED
-    ? `${topNetSpeedRow.NET_SPEED} WPM (${
-        topNetSpeedRow.CANDIDATENAME || "—"
-      })`
+    ? `${topNetSpeedRow.NET_SPEED} WPM (${topNetSpeedRow.CANDIDATENAME || "—"})`
     : "—";
 
   const topAccuracyRow = safeFilteredRows.reduce((max, row) => {
@@ -192,7 +243,7 @@ export default function TypingTest() {
 
       <div className="flex flex-1 flex-col">
         <Header pageTitle="Typing Test" />
-        
+
         <div className="flex flex-1 flex-row overflow-hidden">
           <div className="flex flex-1 flex-col px-6 pb-6">
             <div className="flex flex-wrap gap-4 pt-6">

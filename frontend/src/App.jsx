@@ -28,6 +28,7 @@ import IdleWarningModal from "./components/common/IdleWarningModal";
 import useUnifiedSessionTimer from "./components/lib/useUnifiedSessionTimer";
 
 import { SERVER_URL } from "./components/lib/constants";
+import { useCsrfStore } from "./components/store/csrfStore";
 
 function RequireAuth({ isAuthed }) {
   const location = useLocation();
@@ -73,6 +74,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [hasSession, setHasSession] = useState(false);
+  const { csrfToken } = useCsrfStore();
 
   /*
   ========================================
@@ -93,6 +95,9 @@ function App() {
       await fetch(`${SERVER_URL}/auth/logout`, {
         method: "POST",
         credentials: "include",
+        headers: {
+          "X-CSRF-Token": csrfToken,
+        },
       });
     } catch (e) {}
 
@@ -119,6 +124,7 @@ function App() {
           method: "GET",
           credentials: "include",
           cache: "no-store",
+          headers: { "X-CSRF-Token": csrfToken },
         });
 
         const contentType = res.headers.get("content-type") || "";

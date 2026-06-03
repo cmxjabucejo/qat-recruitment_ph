@@ -5,8 +5,7 @@ import SidebarIcons from "../../components/common/Sidebar";
 import Header from "../../components/common/Header";
 import searchIcon from "../../assets/search_symbol.png";
 import { SERVER_URL } from "../lib/constants";
-import axios from "axios";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 import { HiDownload, HiCalculator } from "react-icons/hi";
 import NewCandidateModal from "../../components/modals/NewCandidateModal";
@@ -17,6 +16,7 @@ import { apiFetch } from "../lib/apiFetch";
 
 import "react-date-range/dist/styles.css";
 import "react-date-range/dist/theme/default.css";
+import { api } from "../lib/axiosInterceptor";
 
 // Helper
 const formatDate = (iso) => {
@@ -902,7 +902,7 @@ function RecruitmentTracker() {
         }
       }
 
-      const response = await axios.put(
+      const response = await api.put(
         `${SERVER_URL}/applicants/updateapplicant`,
         formDataToSend,
         {
@@ -985,7 +985,9 @@ function RecruitmentTracker() {
       }
     } catch (error) {
       console.error("Error sending voice recording email:", error);
-      alert("An error occurred while sending the voice recording instructions.");
+      alert(
+        "An error occurred while sending the voice recording instructions.",
+      );
     } finally {
       setIsSendingVoice(false);
     }
@@ -1297,7 +1299,7 @@ function RecruitmentTracker() {
     setBorderColor("#000");
   };
 
-  const downloadExcel = () => {
+  const downloadExcel = async () => {
     if (filteredTrackers.length === 0) {
       alert("No data to download.");
       return;
@@ -1306,18 +1308,73 @@ function RecruitmentTracker() {
     const dlDate = new Date();
     const formattedDLDate = dlDate.toISOString().slice(2, 10).replace(/-/g, "");
 
-    const worksheet = XLSX.utils.json_to_sheet(filteredTrackers);
-    const workbook = XLSX.utils.book_new();
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Callmax Solutions";
+    workbook.created = new Date();
 
-    XLSX.utils.book_append_sheet(workbook, worksheet, "ApplicantsList");
+    const worksheet = workbook.addWorksheet("ApplicantsList");
 
-    const excelBuffer = XLSX.write(workbook, {
-      bookType: "xlsx",
-      type: "array",
+    const headers = Object.keys(filteredTrackers[0]);
+
+    worksheet.columns = headers.map((header) => ({
+      header,
+      key: header,
+      width: Math.max(header.length + 5, 20),
+    }));
+
+    filteredTrackers.forEach((row) => {
+      worksheet.addRow(row);
     });
 
-    const blob = new Blob([excelBuffer], {
-      type: "application/octet-stream",
+    // Header styling
+    const headerRow = worksheet.getRow(1);
+
+    headerRow.font = {
+      bold: true,
+      color: { argb: "FFFFFFFF" },
+    };
+
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF4D68AA" },
+    };
+
+    headerRow.alignment = {
+      horizontal: "center",
+      vertical: "middle",
+    };
+
+    // Freeze header row
+    worksheet.views = [
+      {
+        state: "frozen",
+        ySplit: 1,
+      },
+    ];
+
+    // Auto-filter
+    worksheet.autoFilter = {
+      from: "A1",
+      to: `${String.fromCharCode(64 + headers.length)}1`,
+    };
+
+    // Auto-size columns
+    worksheet.columns.forEach((column) => {
+      let maxLength = column.header.length;
+
+      column.eachCell({ includeEmpty: true }, (cell) => {
+        const value = cell.value ? cell.value.toString() : "";
+        maxLength = Math.max(maxLength, value.length);
+      });
+
+      column.width = Math.min(maxLength + 3, 50);
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
 
     saveAs(blob, `ApplicantsList_${formattedDLDate}.xlsx`);
@@ -1499,7 +1556,8 @@ function RecruitmentTracker() {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Candidate name, position..."
-                    className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-blue-300"/>
+                    className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-blue-300"
+                  />
                   <img
                     src={searchIcon}
                     className="absolute left-3 top-1/2 w-4 -translate-y-1/2 opacity-60"
@@ -1545,168 +1603,212 @@ function RecruitmentTracker() {
               </div>
             )}
 
-<div className="min-h-0 flex-1 overflow-hidden rounded-lg border bg-white shadow-sm">
-  <div className="h-full overflow-auto">
-    <table className="min-w-[980px] w-full table-fixed text-[13px]">
-      <thead className="sticky top-0 z-10 bg-slate-100 text-[10px] uppercase tracking-wide text-slate-600">
-        <tr>
-          <th style={{ width: "9%" }} className="px-3 py-2 text-left">
-            Application Date
-          </th>
-          <th style={{ width: "13%" }} className="px-3 py-2 text-left">
-            Candidate Name
-          </th>
-          <th style={{ width: "10%" }} className="px-3 py-2 text-left">
-            Source
-          </th>
-          <th style={{ width: "15%" }} className="px-3 py-2 text-left">
-            Role Applied
-          </th>
-          <th style={{ width: "8%" }} className="px-3 py-2 text-left">
-            Setup
-          </th>
-          <th style={{ width: "19%" }} className="px-3 py-2 text-left">
-            Resume
-          </th>
-          <th style={{ width: "10%" }} className="px-3 py-2 text-left">
-            Status
-          </th>
-          <th style={{ width: "8%" }} className="px-3 py-2 text-left">
-            Recruiter
-          </th>
-          <th style={{ width: "8%" }} className="px-3 py-2 text-left">
-            Remarks
-          </th>
-        </tr>
-      </thead>
+            <div className="min-h-0 flex-1 overflow-hidden rounded-lg border bg-white shadow-sm">
+              <div className="h-full overflow-auto">
+                <table className="min-w-[980px] w-full table-fixed text-[13px]">
+                  <thead className="sticky top-0 z-10 bg-slate-100 text-[10px] uppercase tracking-wide text-slate-600">
+                    <tr>
+                      <th
+                        style={{ width: "9%" }}
+                        className="px-3 py-2 text-left"
+                      >
+                        Application Date
+                      </th>
+                      <th
+                        style={{ width: "13%" }}
+                        className="px-3 py-2 text-left"
+                      >
+                        Candidate Name
+                      </th>
+                      <th
+                        style={{ width: "10%" }}
+                        className="px-3 py-2 text-left"
+                      >
+                        Source
+                      </th>
+                      <th
+                        style={{ width: "15%" }}
+                        className="px-3 py-2 text-left"
+                      >
+                        Role Applied
+                      </th>
+                      <th
+                        style={{ width: "8%" }}
+                        className="px-3 py-2 text-left"
+                      >
+                        Setup
+                      </th>
+                      <th
+                        style={{ width: "19%" }}
+                        className="px-3 py-2 text-left"
+                      >
+                        Resume
+                      </th>
+                      <th
+                        style={{ width: "10%" }}
+                        className="px-3 py-2 text-left"
+                      >
+                        Status
+                      </th>
+                      <th
+                        style={{ width: "8%" }}
+                        className="px-3 py-2 text-left"
+                      >
+                        Recruiter
+                      </th>
+                      <th
+                        style={{ width: "8%" }}
+                        className="px-3 py-2 text-left"
+                      >
+                        Remarks
+                      </th>
+                    </tr>
+                  </thead>
 
-      <tbody>
-        {filteredTrackers.map((item, idx) => (
-          <tr
-            key={item.id || item.applicationid || idx}
-            className={`cursor-pointer border-b border-slate-100 transition-colors ${
-              selected?.id === item.id ? "bg-blue-50" : "hover:bg-slate-50"
-            }`}
-            onClick={() => setSelected(item)}
-          >
-            <td className="px-3 py-2 align-top">
-              <div className="whitespace-nowrap">
-                {formatDate(item.applicationdatetime)}
+                  <tbody>
+                    {filteredTrackers.map((item, idx) => (
+                      <tr
+                        key={item.id || item.applicationid || idx}
+                        className={`cursor-pointer border-b border-slate-100 transition-colors ${
+                          selected?.id === item.id
+                            ? "bg-blue-50"
+                            : "hover:bg-slate-50"
+                        }`}
+                        onClick={() => setSelected(item)}
+                      >
+                        <td className="px-3 py-2 align-top">
+                          <div className="whitespace-nowrap">
+                            {formatDate(item.applicationdatetime)}
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-2 align-top font-semibold">
+                          <div className="line-clamp-2">
+                            {displayValue(item.candidatename)}
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-2 align-top">
+                          <div className="line-clamp-2">
+                            {displayValue(item.candidatesource)}
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-2 align-top">
+                          <div className="line-clamp-2">
+                            {displayValue(item.applied_position_title)}
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-2 align-top">
+                          <div className="line-clamp-2">
+                            {displayValue(item.worksetup)}
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-2 align-top">
+                          {item.candidatecvattachment ? (
+                            <button
+                              title={item.candidatecvattachment}
+                              className={`block max-w-full truncate text-left focus:outline-none ${
+                                viewedApplicants.includes(
+                                  String(item.applicationid),
+                                )
+                                  ? "text-gray-500"
+                                  : "text-blue-600 hover:underline"
+                              }`}
+                              onClick={async (e) => {
+                                e.stopPropagation();
+
+                                try {
+                                  const newTab = window.open("", "_blank");
+
+                                  const res = await apiFetch(
+                                    `${SERVER_URL}/mediafiles/resume/${item.candidatecvattachment}`,
+                                  );
+
+                                  const data = await res.json();
+
+                                  if (!data?.url) {
+                                    alert("Resume URL not available.");
+                                    if (newTab) newTab.close();
+                                    return;
+                                  }
+
+                                  const lowerUrl = String(
+                                    data.url,
+                                  ).toLowerCase();
+
+                                  const isWordDoc =
+                                    lowerUrl.includes(".doc") ||
+                                    lowerUrl.includes(".docx");
+
+                                  const viewerUrl = isWordDoc
+                                    ? `https://docs.google.com/gview?url=${encodeURIComponent(
+                                        data.url,
+                                      )}&embedded=true`
+                                    : data.url;
+
+                                  markApplicantAsViewed(item.applicationid);
+
+                                  if (newTab) {
+                                    newTab.location.href = viewerUrl;
+                                  } else {
+                                    window.open(
+                                      viewerUrl,
+                                      "_blank",
+                                      "noopener,noreferrer",
+                                    );
+                                  }
+                                } catch (err) {
+                                  console.error("Resume fetch error:", err);
+                                  alert("Unable to load resume.");
+                                }
+                              }}
+                            >
+                              {item.candidatecvattachment}
+                            </button>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+
+                        <td className="px-3 py-2 align-top">
+                          <div className="line-clamp-2">
+                            {displayValue(item.overall_status)}
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-2 align-top">
+                          <div className="line-clamp-2">
+                            {displayValue(item.recruiter)}
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-2 align-top">
+                          <div className="line-clamp-2">
+                            {displayValue(item.remarks) !== "—"
+                              ? String(item.remarks)
+                              : "—"}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+
+                    {!filteredTrackers.length && !loading && (
+                      <tr>
+                        <td
+                          colSpan="9"
+                          className="py-6 text-center text-slate-400"
+                        >
+                          No records found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
-            </td>
-
-            <td className="px-3 py-2 align-top font-semibold">
-              <div className="line-clamp-2">
-                {displayValue(item.candidatename)}
-              </div>
-            </td>
-
-            <td className="px-3 py-2 align-top">
-              <div className="line-clamp-2">
-                {displayValue(item.candidatesource)}
-              </div>
-            </td>
-
-            <td className="px-3 py-2 align-top">
-              <div className="line-clamp-2">
-                {displayValue(item.applied_position_title)}
-              </div>
-            </td>
-
-            <td className="px-3 py-2 align-top">
-              <div className="line-clamp-2">{displayValue(item.worksetup)}</div>
-            </td>
-
-            <td className="px-3 py-2 align-top">
-              {item.candidatecvattachment ? (
-                <button
-                  title={item.candidatecvattachment}
-                  className={`block max-w-full truncate text-left focus:outline-none ${
-                    viewedApplicants.includes(String(item.applicationid))
-                      ? "text-gray-500"
-                      : "text-blue-600 hover:underline"
-                  }`}
-                  onClick={async (e) => {
-                    e.stopPropagation();
-
-                    try {
-                      const newTab = window.open("", "_blank");
-
-                      const res = await apiFetch(
-                        `${SERVER_URL}/mediafiles/resume/${item.candidatecvattachment}`,
-                      );
-
-                      const data = await res.json();
-
-                      if (!data?.url) {
-                        alert("Resume URL not available.");
-                        if (newTab) newTab.close();
-                        return;
-                      }
-
-                      const lowerUrl = String(data.url).toLowerCase();
-
-                      const isWordDoc =
-                        lowerUrl.includes(".doc") ||
-                        lowerUrl.includes(".docx");
-
-                      const viewerUrl = isWordDoc
-                        ? `https://docs.google.com/gview?url=${encodeURIComponent(
-                            data.url,
-                          )}&embedded=true`
-                        : data.url;
-
-                      markApplicantAsViewed(item.applicationid);
-
-                      if (newTab) {
-                        newTab.location.href = viewerUrl;
-                      } else {
-                        window.open(viewerUrl, "_blank", "noopener,noreferrer");
-                      }
-                    } catch (err) {
-                      console.error("Resume fetch error:", err);
-                      alert("Unable to load resume.");
-                    }
-                  }}
-                >
-                  {item.candidatecvattachment}
-                </button>
-              ) : (
-                "—"
-              )}
-            </td>
-
-            <td className="px-3 py-2 align-top">
-              <div className="line-clamp-2">
-                {displayValue(item.overall_status)}
-              </div>
-            </td>
-
-            <td className="px-3 py-2 align-top">
-              <div className="line-clamp-2">{displayValue(item.recruiter)}</div>
-            </td>
-
-            <td className="px-3 py-2 align-top">
-              <div className="line-clamp-2">
-                {displayValue(item.remarks) !== "—"
-                  ? String(item.remarks)
-                  : "—"}
-              </div>
-            </td>
-          </tr>
-        ))}
-
-        {!filteredTrackers.length && !loading && (
-          <tr>
-            <td colSpan="9" className="py-6 text-center text-slate-400">
-              No records found.
-            </td>
-          </tr>
-        )}
-      </tbody>
-    </table>
-  </div>
-</div>
+            </div>
           </div>
 
           <div className="hidden w-[320px] shrink-0 flex-col border-l border-slate-200 bg-white xl:flex 2xl:w-[350px]">

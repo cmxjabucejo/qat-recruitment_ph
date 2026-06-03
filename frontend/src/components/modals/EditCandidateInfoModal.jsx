@@ -1,6 +1,6 @@
 import React from "react";
-import axios from "axios";
 import { SERVER_URL } from "../lib/constants";
+import { api } from "../lib/axiosInterceptor";
 
 const Required = () => <span className="text-red-500 ml-1">*</span>;
 
@@ -278,7 +278,7 @@ export default function EditCandidateInfoModal({
                   type="button"
                   className="text-blue-600 underline text-sm"
                   onClick={async () => {
-                    const res = await axios.get(
+                    const res = await api.get(
                       `${SERVER_URL}/mediafiles/resume/${formData.candidatecvattachment}`,
                       { withCredentials: true },
                     );

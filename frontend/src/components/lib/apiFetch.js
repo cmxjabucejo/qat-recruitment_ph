@@ -1,3 +1,5 @@
+import { useCsrfStore } from "../store/csrfStore";
+
 function handleSessionExpiry() {
   console.warn("Session expired");
 
@@ -23,6 +25,7 @@ function getDeviceId() {
 
 export async function apiFetch(url, options = {}) {
   try {
+    const csrfToken = useCsrfStore.getState().csrfToken;
     const deviceId = getDeviceId();
 
     const res = await fetch(url, {
@@ -30,6 +33,9 @@ export async function apiFetch(url, options = {}) {
       headers: {
         "Content-Type": "application/json",
         "x-device-id": deviceId, // 🔥 ADD THIS
+        ...(csrfToken && {
+          "X-CSRF-Token": csrfToken,
+        }),
         ...(options.headers || {}),
       },
       ...options,

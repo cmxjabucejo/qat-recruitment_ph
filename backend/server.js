@@ -10,6 +10,9 @@ const { createClient } = require("redis");
 const { RedisStore: SessionStore } = require("connect-redis");
 const { RedisStore: RateLimitRedisStore } = require("rate-limit-redis");
 
+const { doubleCsrf } = require("csrf-csrf");
+const cookieParser = require("cookie-parser");
+
 // 🔐 SECURITY
 const helmet = require("helmet");
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
@@ -19,6 +22,21 @@ const session = require("express-session");
 const { requireAuth } = require("./middleware/authMiddleware");
 
 dotenv.config();
+
+const { generateCsrfToken, doubleCsrfProtection } = doubleCsrf({
+  getSecret: () => process.env.SESSION_SECRET,
+  // required in csrf-csrf v4
+  getSessionIdentifier: (req) => req.sessionID,
+  cookieName: "__Host-csrf-token",
+  cookieOptions: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    path: "/",
+  },
+  size: 64,
+  ignoredMethods: ["GET", "HEAD", "OPTIONS"],
+});
 
 /*
 ========================================
@@ -49,8 +67,9 @@ const LOCAL_FRONTEND_URL =
 
 const PROD_FRONTEND_URL = process.env.PROD_FRONTEND_URL || "";
 
-const FRONTEND_URL =
-  IS_PROD ? PROD_FRONTEND_URL || LOCAL_FRONTEND_URL : LOCAL_FRONTEND_URL;
+const FRONTEND_URL = IS_PROD
+  ? PROD_FRONTEND_URL || LOCAL_FRONTEND_URL
+  : LOCAL_FRONTEND_URL;
 
 const allowedOrigins = [
   LOCAL_FRONTEND_URL,
@@ -134,6 +153,7 @@ const corsOptions = {
     "Authorization",
     "X-Requested-With",
     "X-Device-Id",
+    "X-CSRF-Token",
   ],
 };
 
@@ -156,6 +176,7 @@ app.use((req, res, next) => {
 */
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+app.use(cookieParser());
 
 /*
 ========================================
@@ -199,28 +220,31 @@ async function startServer() {
       prefix: process.env.REDIS_SESSION_PREFIX || "cmx_recruitment:",
     });
 
-		app.use(
-			session({
-				name: process.env.SESSION_NAME || "cmx_recruitment_sid",
-				store: redisStore,
-				secret:
-					process.env.SESSION_SECRET ||
-					"dev-only-change-this-session-secret",
-				resave: false,
-				saveUninitialized: false,
+    app.use(
+      session({
+        name: process.env.SESSION_NAME || "cmx_recruitment_sid",
+        store: redisStore,
+        secret:
+          process.env.SESSION_SECRET || "dev-only-change-this-session-secret",
+        resave: false,
+        saveUninitialized: false,
 
-				// Keep true if you want activity to refresh server-side session TTL.
-				// The browser cookie will still be session-only because maxAge is removed.
-				rolling: true,
+        // Keep true if you want activity to refresh server-side session TTL.
+        // The browser cookie will still be session-only because maxAge is removed.
+        rolling: true,
 
-				cookie: {
-					httpOnly: true,
-					secure: IS_PROD,
-					sameSite: "lax",
+        cookie: {
+          httpOnly: true,
+          secure: IS_PROD,
+          sameSite: "strict",
+        },
+      }),
+    );
 
-				},
-			}),
-		);
+    app.get("/api/csrf-token", (req, res) => {
+      const csrfToken = generateCsrfToken(req, res);
+      res.json({ csrfToken });
+    });
 
     /*
     ========================================
@@ -252,22 +276,22 @@ async function startServer() {
     });
 
     const otpVerifyLimiter = rateLimit({
-			store: new RateLimitRedisStore({
-					sendCommand: (...args) => redisClient.sendCommand(args),
-					prefix: "otp_verify:",
-			}),
-			windowMs: 10 * 60 * 1000, // 10 minutes
-			max: 10, // 10 OTP verification attempts per 10 minutes
-			standardHeaders: true,
-			legacyHeaders: false,
-			message: {
-					success: false,
-					message: "Invalid credentials or authentication request",
-			},
-			keyGenerator: (req) => {
-					const challengeId = req.body?.challengeId || "nochallenge";
-					return `${String(challengeId)}_${ipKeyGenerator(req.ip)}`;
-			},
+      store: new RateLimitRedisStore({
+        sendCommand: (...args) => redisClient.sendCommand(args),
+        prefix: "otp_verify:",
+      }),
+      windowMs: 10 * 60 * 1000, // 10 minutes
+      max: 10, // 10 OTP verification attempts per 10 minutes
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: {
+        success: false,
+        message: "Invalid credentials or authentication request",
+      },
+      keyGenerator: (req) => {
+        const challengeId = req.body?.challengeId || "nochallenge";
+        return `${String(challengeId)}_${ipKeyGenerator(req.ip)}`;
+      },
     });
 
     const generalLimiter = rateLimit({
@@ -361,7 +385,7 @@ async function startServer() {
     ========================================
     */
     app.use("/api/auth/send-otp", otpLimiter);
-		app.use("/api/auth/verify-otp-login", otpVerifyLimiter);
+    app.use("/api/auth/verify-otp-login", otpVerifyLimiter);
 
     app.use("/api", (req, res, next) => {
       const contentType = req.headers["content-type"] || "";
@@ -388,6 +412,7 @@ async function startServer() {
     */
     app.use("/api/auth", authAPI);
 
+    app.use(doubleCsrfProtection);
     app.use("/api/jobposts", requireAuth, jobpostingAPI);
     app.use("/api/accounts", requireAuth, clientRosterAPI);
     app.use("/api/assessments", requireAuth, assessmentAPI);

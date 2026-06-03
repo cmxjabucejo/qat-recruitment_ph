@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { SERVER_URL } from "../lib/constants";
 import { apiFetch } from "../lib/apiFetch";
+import { getCSRFToken } from "../service/CSRFService";
+import { useCsrfStore } from "../store/csrfStore";
 
 const AUTH_GENERIC_MESSAGE = "Invalid credentials or authentication request";
 const AUTH_GENERIC_SUCCESS =
@@ -137,6 +139,8 @@ const OtpVerification = () => {
         return;
       }
 
+      const csrfToken = await getCSRFToken();
+      useCsrfStore.getState().setCsrfToken(csrfToken);
       setSuccess("Verification completed successfully.");
 
       /*
