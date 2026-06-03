@@ -916,7 +916,7 @@ function RecruitmentTracker() {
       if (response.data.success) {
         setIsUpdateCycleModalOpen(false);
 
-        const freshRes = await axios.get(
+        const freshRes = await api.get(
           `${SERVER_URL}/applicants/getcandidate/${formData.applicationid}`,
           { withCredentials: true },
         );
@@ -969,7 +969,7 @@ function RecruitmentTracker() {
     setIsSendingVoice(true);
 
     try {
-      const response = await axios.post(
+      const response = await api.post(
         `${SERVER_URL}/emails/voice_recording_email`,
         {
           emailAddress: formData.candidateemail1,
@@ -1002,7 +1002,7 @@ function RecruitmentTracker() {
     setIsSendingTyping(true);
 
     try {
-      const response = await axios.post(
+      const response = await api.post(
         `${SERVER_URL}/emails/typing_test_email`,
         {
           emailAddress: formData.candidateemail1,
@@ -1033,7 +1033,7 @@ function RecruitmentTracker() {
     setIsSendingEOL(true);
 
     try {
-      const response = await axios.post(
+      const response = await api.post(
         `${SERVER_URL}/emails/eol_email`,
         {
           emailAddress: formData.candidateemail1,
@@ -1075,7 +1075,7 @@ function RecruitmentTracker() {
         }
       });
 
-      const response = await axios.put(
+      const response = await api.put(
         `${SERVER_URL}/applicants/editapplicant`,
         formDataToSend,
         {
@@ -1140,7 +1140,7 @@ function RecruitmentTracker() {
     setIsSaving(true);
 
     try {
-      const checkResponse = await axios.post(
+      const checkResponse = await api.post(
         `${SERVER_URL}/auth/check-email-exists`,
         {
           email1: formData.candidateemail1,
@@ -1182,7 +1182,7 @@ function RecruitmentTracker() {
 
       formDataWithAttachment.append("candidatename", candidatename);
 
-      const response = await axios.post(
+      const response = await api.post(
         `${SERVER_URL}/applicants/addapplicants`,
         formDataWithAttachment,
         {
@@ -1234,7 +1234,7 @@ function RecruitmentTracker() {
 
   const sendAcknowledgmentEmail = async () => {
     try {
-      await axios.post(
+      await api.post(
         `${SERVER_URL}/emails/send_acknowledgement`,
         {
           email: formData.candidateemail1,
@@ -1912,7 +1912,7 @@ function RecruitmentTracker() {
                     <button
                       onClick={async () => {
                         try {
-                          const res = await axios.get(
+                          const res = await api.get(
                             `${SERVER_URL}/applicants/getcandidate/${selected.applicationid}`,
                             { withCredentials: true },
                           );
@@ -1942,7 +1942,7 @@ function RecruitmentTracker() {
                       className="w-full rounded-xl bg-slate-600 px-4 py-2.5 text-sm text-white shadow-sm hover:bg-slate-700"
                       onClick={async () => {
                         try {
-                          const freshRes = await axios.get(
+                          const freshRes = await api.get(
                             `${SERVER_URL}/applicants/getcandidate/${selected.applicationid}`,
                             { withCredentials: true },
                           );
