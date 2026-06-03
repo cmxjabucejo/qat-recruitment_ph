@@ -4,3 +4,4 @@ backend/.env
 frontend/build
 .env
 backend/uploads
+frontend/src/components/lib/constants.js

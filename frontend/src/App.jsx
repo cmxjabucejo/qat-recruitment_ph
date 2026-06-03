@@ -29,6 +29,7 @@ import useUnifiedSessionTimer from "./components/lib/useUnifiedSessionTimer";
 
 import { SERVER_URL } from "./components/lib/constants";
 import { useCsrfStore } from "./components/store/csrfStore";
+import { getCSRFToken } from "./components/service/CSRFService";
 
 function RequireAuth({ isAuthed }) {
   const location = useLocation();
@@ -137,6 +138,8 @@ function App() {
             setUser(data.user);
             setIsAuthed(true);
             setHasSession(true); // optional (can keep)
+            const csrfToken = await getCSRFToken();
+            useCsrfStore.getState().setCsrfToken(csrfToken);
             return;
           }
         }
