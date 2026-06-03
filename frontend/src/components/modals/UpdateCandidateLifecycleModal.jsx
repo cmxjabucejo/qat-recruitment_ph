@@ -147,9 +147,7 @@ export default function UpdateCandidateLifecycleModal({
   isSendingTyping,
   isSendingEOL,
 }) {
-  useEffect(() => {
-    console.log("Modal formData:", formData);
-  }, [formData]);
+  useEffect(() => {}, [formData]);
 
   if (!isOpen || !selected) return null;
 

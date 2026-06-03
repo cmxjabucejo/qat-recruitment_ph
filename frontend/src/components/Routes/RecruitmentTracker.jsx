@@ -321,8 +321,6 @@ function RecruitmentTracker() {
       setTrackers(normalized);
       setFilteredTrackers(normalized);
       setError(null);
-
-      console.log(`📊 Recruitment Tracker fetched ${normalized.length} rows`);
     } catch (error) {
       console.error("❌ Error fetching tracker data:", error);
       setError(error.message || "Unknown error occurred");
@@ -644,9 +642,7 @@ function RecruitmentTracker() {
     }
   }, [formData.endorsementStatus, formData.overallStatus]);
 
-  useEffect(() => {
-    console.log("Viewed applicants:", viewedApplicants);
-  }, [viewedApplicants]);
+  useEffect(() => {}, [viewedApplicants]);
 
   useEffect(() => {
     calculateMargin();

@@ -92,12 +92,9 @@ const NavigationButtons = () => {
 
       // Fetch stored account-task mapping
       const accountTaskData = await fetchAccountList();
-      console.log("🔍 Full Account-Task Mapping:", accountTaskData); // Debugging
 
       const tasks = accountTaskData[account] || []; // Get tasks for selected account
       setTaskOptions(tasks);
-
-      console.log(`✅ Tasks for ${account}:`, tasks);
     } catch (error) {
       console.error("❌ Error fetching Task data:", error);
     }

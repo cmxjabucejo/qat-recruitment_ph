@@ -40,12 +40,11 @@ function UpdateUser() {
     e.preventDefault();
     try {
       const confirmDelete = window.confirm(
-        "Are you sure you want to delete this user?"
+        "Are you sure you want to delete this user?",
       );
       if (confirmDelete) {
         const token = localStorage.getItem("token");
         const res = await UserService.updateUser(userId, userData, token);
-        // console.log(res)
         // Redirect to profile page or display a success message
         navigate("/admin/user-management");
       }
