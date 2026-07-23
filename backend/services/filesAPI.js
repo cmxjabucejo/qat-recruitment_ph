@@ -178,7 +178,8 @@ router.get(
   requireAuth,
   requireRole(...FILE_ACCESS_ROLES),
   async (req, res) => {
-    const filename = getDecodedValue(req.params.filename);
+    // const filename = getDecodedValue(req.params.filename);
+    const filename=String(req.params.filename || "").trim();
 
     if (!isSafeFileName(filename)) {
       return res.status(400).json({
