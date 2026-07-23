@@ -181,12 +181,12 @@ router.get(
     // const filename = getDecodedValue(req.params.filename);
     const filename=String(req.params.filename || "").trim();
 
-    if (!isSafeFileName(filename)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid file request.",
-      });
-    }
+    // if (!isSafeFileName(filename)) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     error: "Invalid file request.",
+    //   });
+    // }
 
     try {
       const signedUrl = await createSignedGetUrl({
