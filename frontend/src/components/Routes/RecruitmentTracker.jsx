@@ -43,7 +43,8 @@ const normalizeObjectPayload = (payload) => {
   return payload;
 };
 
-function RecruitmentTracker() {
+function RecruitmentTracker({ user }) {
+  const isSuperAdmin = user.userLevel == "Super Admin";
   const [trackers, setTrackers] = useState([]);
   const [filteredTrackers, setFilteredTrackers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1573,14 +1574,18 @@ function RecruitmentTracker() {
                   Add New Candidates
                 </button>
 
-                <button
-                  onClick={() => setIsGMModalOpen(true)}
-                  className="flex items-center gap-2 rounded-lg bg-slate-200 px-4 py-2.5 text-sm text-slate-800 shadow-sm hover:bg-slate-300"
-                  title="Open GM Calculator"
-                >
-                  <HiCalculator className="text-lg" />
-                  <span className="hidden sm:inline">GM</span>
-                </button>
+                {isSuperAdmin && (
+                  <button
+                    onClick={() => {
+                      if (isSuperAdmin) setIsGMModalOpen(true);
+                    }}
+                    className="flex items-center gap-2 rounded-lg bg-slate-200 px-4 py-2.5 text-sm text-slate-800 shadow-sm hover:bg-slate-300"
+                    title="Open GM Calculator"
+                  >
+                    <HiCalculator className="text-lg" />
+                    <span className="hidden sm:inline">GM</span>
+                  </button>
+                )}
 
                 <button
                   onClick={downloadExcel}
@@ -2027,7 +2032,7 @@ function RecruitmentTracker() {
             isSendingEOL={isSendingEOL}
           />
 
-          {isGMModalOpen && (
+          {isSuperAdmin && isGMModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm">
               <div className="relative max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
                 <div className="mb-4 flex items-center justify-between border-b pb-3">
