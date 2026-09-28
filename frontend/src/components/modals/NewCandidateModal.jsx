@@ -330,6 +330,25 @@ export default function NewCandidateModal({
             />
           </div>
 
+          {/*Work Setup added-9/28/2026 Julius*/}
+          <div>
+            <label className="block font-medium mb-1">
+              Work Setup <span className="text-red-500">*</span>
+            </label>
+            <select
+              name="workSetup"
+              value={formData.workSetup || ""}
+              onChange={handleChange}
+              className="w-full border rounded h-10 px-3"
+              required
+            >
+              <option value="">Select</option>
+              <option value="On Site">On Site</option>
+              <option value="Work from Home">Work from Home</option>
+              <option value="Hybrid">Hybrid</option>
+            </select>
+          </div>
+
           {/* Resume Upload */}
           <div>
             <label className="block font-medium mb-1">Resume Attachment</label>

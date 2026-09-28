@@ -51,7 +51,6 @@ const departments = [
 ];
 
 const Dashboard = () => {
-
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -173,11 +172,13 @@ const Dashboard = () => {
   const forReprofile = countStatus("Reprofiled");
   const cancelledApplication = countStatus("Cancelled Application");
   const discontinuedPooling = countStatus("Pooling Discontinued");
-  const fallout = countStatus("Training Fallout / Resigned");
+  const fallout = countStatus("Fallout");
 
   const overallStatusData = Object.keys(statusColors).map((status) => ({
     name: status,
-    value: countStatus(status),
+    value: countStatus(
+      status == "Training Fallout / Resigned" ? "Fallout" : status,
+    ),
   }));
 
   /* ================== RECRUITER PERFORMANCE ================== */

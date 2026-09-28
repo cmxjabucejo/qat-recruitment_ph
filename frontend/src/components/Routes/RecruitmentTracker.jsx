@@ -124,6 +124,7 @@ function RecruitmentTracker({ user }) {
     candidateemail2: "",
     resume: null,
     overallStatus: "Active Application",
+    workSetup: "",
   };
 
   const normalizeRow = (row) =>
@@ -1212,6 +1213,7 @@ function RecruitmentTracker({ user }) {
           message: "Failed to add candidate.",
         });
       }
+      setFormData(INITIAL_FORM_DATA);
     } catch (error) {
       console.error("❌ Submit failed:", error);
 
@@ -1225,7 +1227,6 @@ function RecruitmentTracker({ user }) {
       });
     } finally {
       setIsSaving(false);
-      setFormData(INITIAL_FORM_DATA);
     }
   };
 

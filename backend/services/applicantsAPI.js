@@ -452,8 +452,9 @@ router.post(
           referral_code,
           date_updated,
           overall_status,
-          applicationencodeddatetime
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          applicationencodeddatetime,
+          worksetup
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `;
 
       const values = [
@@ -476,6 +477,7 @@ router.post(
         applicationDatetime,
         safeNullableString(data.overallStatus, 100) || "Active Application",
         applicationDatetime,
+        safeNullableString(data.workSetup, 255),
       ];
 
       await db.query(query, values);
