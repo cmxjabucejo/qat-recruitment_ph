@@ -1,4 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useDeferredValue,
+  useRef,
+  memo,
+} from "react";
 import { format } from "date-fns";
 import { DateRange } from "react-date-range";
 import SidebarIcons from "../../components/common/Sidebar";
@@ -43,10 +51,112 @@ const normalizeObjectPayload = (payload) => {
   return payload;
 };
 
+const PAGE_SIZE = 50;
+
+const cellValue = (value) =>
+  value === null || value === undefined || value === "" || value === "null"
+    ? "—"
+    : value;
+
+// Memoized so unrelated state changes (search input, modal forms, filters
+// panel) don't re-render the table rows.
+const TrackerRows = memo(function TrackerRows({
+  rows,
+  selectedId,
+  viewedSet,
+  loading,
+  onSelect,
+  onOpenResume,
+}) {
+  return (
+    <>
+      {rows.map((item, idx) => (
+        <tr
+          key={item.id || item.applicationid || idx}
+          className={`cursor-pointer border-b border-slate-100 transition-colors ${
+            selectedId === item.id ? "bg-blue-50" : "hover:bg-slate-50"
+          }`}
+          onClick={() => onSelect(item)}
+        >
+          <td className="px-3 py-2 align-top">
+            <div className="whitespace-nowrap">
+              {formatDate(item.applicationdatetime)}
+            </div>
+          </td>
+
+          <td className="px-3 py-2 align-top font-semibold">
+            <div className="line-clamp-2">{cellValue(item.candidatename)}</div>
+          </td>
+
+          <td className="px-3 py-2 align-top">
+            <div className="line-clamp-2">
+              {cellValue(item.candidatesource)}
+            </div>
+          </td>
+
+          <td className="px-3 py-2 align-top">
+            <div className="line-clamp-2">
+              {cellValue(item.applied_position_title)}
+            </div>
+          </td>
+
+          <td className="px-3 py-2 align-top">
+            <div className="line-clamp-2">{cellValue(item.worksetup)}</div>
+          </td>
+
+          <td className="px-3 py-2 align-top">
+            {item.candidatecvattachment ? (
+              <button
+                title={item.candidatecvattachment}
+                className={`block max-w-full truncate text-left focus:outline-none ${
+                  viewedSet.has(String(item.applicationid))
+                    ? "text-gray-500"
+                    : "text-blue-600 hover:underline"
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenResume(item);
+                }}
+              >
+                {item.candidatecvattachment}
+              </button>
+            ) : (
+              "—"
+            )}
+          </td>
+
+          <td className="px-3 py-2 align-top">
+            <div className="line-clamp-2">{cellValue(item.overall_status)}</div>
+          </td>
+
+          <td className="px-3 py-2 align-top">
+            <div className="line-clamp-2">{cellValue(item.recruiter)}</div>
+          </td>
+
+          <td className="px-3 py-2 align-top">
+            <div className="line-clamp-2">
+              {cellValue(item.remarks) !== "—" ? String(item.remarks) : "—"}
+            </div>
+          </td>
+        </tr>
+      ))}
+
+      {!rows.length && !loading && (
+        <tr>
+          <td colSpan="9" className="py-6 text-center text-slate-400">
+            No records found.
+          </td>
+        </tr>
+      )}
+    </>
+  );
+});
+
 function RecruitmentTracker({ user }) {
   const isSuperAdmin = user.userLevel == "Super Admin";
   const [trackers, setTrackers] = useState([]);
-  const [filteredTrackers, setFilteredTrackers] = useState([]);
+  const [page, setPage] = useState(1);
+  const tableScrollRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -321,13 +431,11 @@ function RecruitmentTracker({ user }) {
       const normalized = rows.map(normalizeRow);
 
       setTrackers(normalized);
-      setFilteredTrackers(normalized);
       setError(null);
     } catch (error) {
       console.error("❌ Error fetching tracker data:", error);
       setError(error.message || "Unknown error occurred");
       setTrackers([]);
-      setFilteredTrackers([]);
     } finally {
       setLoading(false);
     }
@@ -519,14 +627,36 @@ function RecruitmentTracker({ user }) {
     }
   }, [isUpdateCycleModalOpen]);
 
-  useEffect(() => {
-    const q = search.toLowerCase();
+  // Lowercased searchable text and parsed date per row, built once per data
+  // load instead of on every keystroke. "\u0001" keeps matches within a field.
+  const searchIndex = useMemo(() => {
+    const index = new Map();
+
+    trackers.forEach((item) => {
+      index.set(item, {
+        text: Object.values(item)
+          .map((v) => (v == null ? "" : String(v).toLowerCase()))
+          .join("\u0001"),
+        time: new Date(item.applicationdatetime).getTime(),
+      });
+    });
+
+    return index;
+  }, [trackers]);
+
+  // The input updates immediately; filtering the list runs at lower priority.
+  const deferredSearch = useDeferredValue(search);
+
+  const filteredTrackers = useMemo(() => {
+    const q = deferredSearch.toLowerCase();
     const { startDate, endDate } = dateRange[0];
+    const startTime = startDate ? startDate.getTime() : null;
+    const endTime = endDate ? endDate.getTime() : null;
 
     const filtered = trackers.filter((item) => {
-      const matchSearch = Object.values(item).some((v) =>
-        v?.toString().toLowerCase().includes(q),
-      );
+      const { text, time } = searchIndex.get(item);
+
+      const matchSearch = !q || text.includes(q);
 
       const matchStatus =
         statusFilter === "All" || item.overall_status === statusFilter;
@@ -544,9 +674,9 @@ function RecruitmentTracker({ user }) {
       const matchRecruiter =
         recruiterFilter === "All" || item.recruiter === recruiterFilter;
 
-      const d = new Date(item.applicationdatetime);
       const inRange =
-        (!startDate || d >= startDate) && (!endDate || d <= endDate);
+        (startTime === null || time >= startTime) &&
+        (endTime === null || time <= endTime);
 
       return (
         matchSearch &&
@@ -559,16 +689,16 @@ function RecruitmentTracker({ user }) {
       );
     });
 
-    const sorted = [...filtered].sort((a, b) => {
-      const da = new Date(a.applicationdatetime);
-      const db = new Date(b.applicationdatetime);
+    // filter() already returned a new array, so sorting in place is safe.
+    return filtered.sort((a, b) => {
+      const da = searchIndex.get(a).time;
+      const db = searchIndex.get(b).time;
       return sortOrder === "newest" ? db - da : da - db;
     });
-
-    setFilteredTrackers(sorted);
   }, [
     trackers,
-    search,
+    searchIndex,
+    deferredSearch,
     statusFilter,
     positionFilter,
     sourceFilter,
@@ -644,31 +774,64 @@ function RecruitmentTracker({ user }) {
     }
   }, [formData.endorsementStatus, formData.overallStatus]);
 
-  useEffect(() => {}, [viewedApplicants]);
-
   useEffect(() => {
     calculateMargin();
   }, [askingSalary, nightDiff, billRate, billableHours, conversionRate]);
 
-  const uniquePositions = [
-    ...new Set(trackers.map((t) => t.applied_position_title)),
-  ].filter(Boolean);
+  // Back to the first page when the search, filters or sort change — not when
+  // the data reloads after a save, so the user stays on the page they were on.
+  useEffect(() => {
+    setPage(1);
+  }, [
+    deferredSearch,
+    statusFilter,
+    positionFilter,
+    sourceFilter,
+    setupFilter,
+    recruiterFilter,
+    dateRange,
+    sortOrder,
+  ]);
 
-  const uniqueStatuses = [
-    ...new Set(trackers.map((t) => t.overall_status)),
-  ].filter(Boolean);
+  const pageCount = Math.max(1, Math.ceil(filteredTrackers.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
 
-  const uniqueSources = [
-    ...new Set(trackers.map((t) => t.candidatesource)),
-  ].filter(Boolean);
+  useEffect(() => {
+    tableScrollRef.current?.scrollTo({ top: 0 });
+  }, [currentPage]);
 
-  const uniqueSetups = [...new Set(trackers.map((t) => t.worksetup))].filter(
-    Boolean,
+  const pagedTrackers = useMemo(
+    () =>
+      filteredTrackers.slice(
+        (currentPage - 1) * PAGE_SIZE,
+        currentPage * PAGE_SIZE,
+      ),
+    [filteredTrackers, currentPage],
   );
 
-  const uniqueRecruiters = [
-    ...new Set(trackers.map((t) => t.recruiter)),
-  ].filter(Boolean);
+  const viewedSet = useMemo(
+    () => new Set(viewedApplicants),
+    [viewedApplicants],
+  );
+
+  const {
+    uniquePositions,
+    uniqueStatuses,
+    uniqueSources,
+    uniqueSetups,
+    uniqueRecruiters,
+  } = useMemo(() => {
+    const uniqueOf = (key) =>
+      [...new Set(trackers.map((t) => t[key]))].filter(Boolean);
+
+    return {
+      uniquePositions: uniqueOf("applied_position_title"),
+      uniqueStatuses: uniqueOf("overall_status"),
+      uniqueSources: uniqueOf("candidatesource"),
+      uniqueSetups: uniqueOf("worksetup"),
+      uniqueRecruiters: uniqueOf("recruiter"),
+    };
+  }, [trackers]);
 
   const formatRangeLabel = () => {
     const { startDate, endDate } = dateRange[0];
@@ -757,7 +920,7 @@ function RecruitmentTracker({ user }) {
     }));
   };
 
-  const markApplicantAsViewed = (applicationId) => {
+  const markApplicantAsViewed = useCallback((applicationId) => {
     const id = String(applicationId);
 
     setViewedApplicants((prev) => {
@@ -767,7 +930,50 @@ function RecruitmentTracker({ user }) {
       localStorage.setItem("viewedApplicants", JSON.stringify(updated));
       return updated;
     });
-  };
+  }, []);
+
+  const openResume = useCallback(
+    async (item) => {
+      try {
+        const newTab = window.open("", "_blank");
+
+        const res = await apiFetch(
+          `${SERVER_URL}/mediafiles/resume/${item.candidatecvattachment}`,
+        );
+
+        const data = await res.json();
+
+        if (!data?.url) {
+          alert("Resume URL not available.");
+          if (newTab) newTab.close();
+          return;
+        }
+
+        const lowerUrl = String(data.url).toLowerCase();
+
+        const isWordDoc =
+          lowerUrl.includes(".doc") || lowerUrl.includes(".docx");
+
+        const viewerUrl = isWordDoc
+          ? `https://docs.google.com/gview?url=${encodeURIComponent(
+              data.url,
+            )}&embedded=true`
+          : data.url;
+
+        markApplicantAsViewed(item.applicationid);
+
+        if (newTab) {
+          newTab.location.href = viewerUrl;
+        } else {
+          window.open(viewerUrl, "_blank", "noopener,noreferrer");
+        }
+      } catch (err) {
+        console.error("Resume fetch error:", err);
+        alert("Unable to load resume.");
+      }
+    },
+    [markApplicantAsViewed],
+  );
 
   const showReferralField =
     formData.candidatesource === "Referral" ||
@@ -1606,7 +1812,7 @@ function RecruitmentTracker({ user }) {
             )}
 
             <div className="min-h-0 flex-1 overflow-hidden rounded-lg border bg-white shadow-sm">
-              <div className="h-full overflow-auto">
+              <div ref={tableScrollRef} className="h-full overflow-auto">
                 <table className="min-w-[980px] w-full table-fixed text-[13px]">
                   <thead className="sticky top-0 z-10 bg-slate-100 text-[10px] uppercase tracking-wide text-slate-600">
                     <tr>
@@ -1668,149 +1874,47 @@ function RecruitmentTracker({ user }) {
                   </thead>
 
                   <tbody>
-                    {filteredTrackers.map((item, idx) => (
-                      <tr
-                        key={item.id || item.applicationid || idx}
-                        className={`cursor-pointer border-b border-slate-100 transition-colors ${
-                          selected?.id === item.id
-                            ? "bg-blue-50"
-                            : "hover:bg-slate-50"
-                        }`}
-                        onClick={() => setSelected(item)}
-                      >
-                        <td className="px-3 py-2 align-top">
-                          <div className="whitespace-nowrap">
-                            {formatDate(item.applicationdatetime)}
-                          </div>
-                        </td>
-
-                        <td className="px-3 py-2 align-top font-semibold">
-                          <div className="line-clamp-2">
-                            {displayValue(item.candidatename)}
-                          </div>
-                        </td>
-
-                        <td className="px-3 py-2 align-top">
-                          <div className="line-clamp-2">
-                            {displayValue(item.candidatesource)}
-                          </div>
-                        </td>
-
-                        <td className="px-3 py-2 align-top">
-                          <div className="line-clamp-2">
-                            {displayValue(item.applied_position_title)}
-                          </div>
-                        </td>
-
-                        <td className="px-3 py-2 align-top">
-                          <div className="line-clamp-2">
-                            {displayValue(item.worksetup)}
-                          </div>
-                        </td>
-
-                        <td className="px-3 py-2 align-top">
-                          {item.candidatecvattachment ? (
-                            <button
-                              title={item.candidatecvattachment}
-                              className={`block max-w-full truncate text-left focus:outline-none ${
-                                viewedApplicants.includes(
-                                  String(item.applicationid),
-                                )
-                                  ? "text-gray-500"
-                                  : "text-blue-600 hover:underline"
-                              }`}
-                              onClick={async (e) => {
-                                e.stopPropagation();
-
-                                try {
-                                  const newTab = window.open("", "_blank");
-
-                                  const res = await apiFetch(
-                                    `${SERVER_URL}/mediafiles/resume/${item.candidatecvattachment}`,
-                                  );
-
-                                  const data = await res.json();
-
-                                  if (!data?.url) {
-                                    alert("Resume URL not available.");
-                                    if (newTab) newTab.close();
-                                    return;
-                                  }
-
-                                  const lowerUrl = String(
-                                    data.url,
-                                  ).toLowerCase();
-
-                                  const isWordDoc =
-                                    lowerUrl.includes(".doc") ||
-                                    lowerUrl.includes(".docx");
-
-                                  const viewerUrl = isWordDoc
-                                    ? `https://docs.google.com/gview?url=${encodeURIComponent(
-                                        data.url,
-                                      )}&embedded=true`
-                                    : data.url;
-
-                                  markApplicantAsViewed(item.applicationid);
-
-                                  if (newTab) {
-                                    newTab.location.href = viewerUrl;
-                                  } else {
-                                    window.open(
-                                      viewerUrl,
-                                      "_blank",
-                                      "noopener,noreferrer",
-                                    );
-                                  }
-                                } catch (err) {
-                                  console.error("Resume fetch error:", err);
-                                  alert("Unable to load resume.");
-                                }
-                              }}
-                            >
-                              {item.candidatecvattachment}
-                            </button>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-
-                        <td className="px-3 py-2 align-top">
-                          <div className="line-clamp-2">
-                            {displayValue(item.overall_status)}
-                          </div>
-                        </td>
-
-                        <td className="px-3 py-2 align-top">
-                          <div className="line-clamp-2">
-                            {displayValue(item.recruiter)}
-                          </div>
-                        </td>
-
-                        <td className="px-3 py-2 align-top">
-                          <div className="line-clamp-2">
-                            {displayValue(item.remarks) !== "—"
-                              ? String(item.remarks)
-                              : "—"}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-
-                    {!filteredTrackers.length && !loading && (
-                      <tr>
-                        <td
-                          colSpan="9"
-                          className="py-6 text-center text-slate-400"
-                        >
-                          No records found.
-                        </td>
-                      </tr>
-                    )}
+                    <TrackerRows
+                      rows={pagedTrackers}
+                      selectedId={selected?.id}
+                      viewedSet={viewedSet}
+                      loading={loading}
+                      onSelect={setSelected}
+                      onOpenResume={openResume}
+                    />
                   </tbody>
                 </table>
               </div>
             </div>
+
+            {filteredTrackers.length > PAGE_SIZE && (
+              <div className="mt-2 flex shrink-0 items-center justify-between text-xs text-slate-600">
+                <span>
+                  Showing {(currentPage - 1) * PAGE_SIZE + 1}–
+                  {Math.min(currentPage * PAGE_SIZE, filteredTrackers.length)} of{" "}
+                  {filteredTrackers.length}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPage(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1 hover:bg-slate-100 disabled:opacity-40"
+                  >
+                    Prev
+                  </button>
+                  <span>
+                    Page {currentPage} of {pageCount}
+                  </span>
+                  <button
+                    onClick={() => setPage(currentPage + 1)}
+                    disabled={currentPage === pageCount}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1 hover:bg-slate-100 disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="hidden w-[320px] shrink-0 flex-col border-l border-slate-200 bg-white xl:flex 2xl:w-[350px]">

@@ -62,7 +62,11 @@ export default function useUnifiedSessionTimer(onExpire) {
       const elapsed = now - lastActivityRef.current;
       const remaining = Math.max(0, SESSION_DURATION - elapsed);
 
-      setTimeLeft(remaining);
+      // Only push the countdown into state while the warning is visible.
+      // Updating every second re-renders the whole app (this hook lives in App).
+      if (remaining <= WARNING_TIME) {
+        setTimeLeft(remaining);
+      }
 
       // 🔥 Trigger warning ONCE
       if (remaining <= WARNING_TIME && remaining > 0 && !isLockedRef.current) {
@@ -88,6 +92,7 @@ export default function useUnifiedSessionTimer(onExpire) {
   const resetSession = () => {
     isLockedRef.current = false;
     lastActivityRef.current = Date.now();
+    setTimeLeft(SESSION_DURATION);
     setShowWarning(false);
   };
 
