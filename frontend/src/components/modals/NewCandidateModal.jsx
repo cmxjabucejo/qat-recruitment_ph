@@ -343,7 +343,7 @@ export default function NewCandidateModal({
               required
             >
               <option value="">Select</option>
-              <option value="On Site">On Site</option>
+              <option value="Onsite">Onsite</option>
               <option value="Work from Home">Work from Home</option>
               <option value="Hybrid">Hybrid</option>
             </select>

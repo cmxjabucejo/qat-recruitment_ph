@@ -272,7 +272,7 @@ export default function UpdateCandidateLifecycleModal({
               name="workSetup"
               value={formData.workSetup}
               onChange={handleChange}
-              options={["On Site", "Work from Home", "Hybrid"]}
+              options={["Onsite", "Work from Home", "Hybrid"]}
               required
             />
           </div>
